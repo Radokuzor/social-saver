@@ -1,6 +1,7 @@
 // app/(tabs)/index.tsx
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Search } from 'lucide-react-native';
@@ -18,6 +19,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -49,6 +51,8 @@ export default function HomeScreen() {
   const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set());
   const scrollViewRef = useRef<ScrollView>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
 
   const loadContent = useCallback(async () => {
     if (!isSignedIn) return;
@@ -80,6 +84,26 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, [isSignedIn, loadContent]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Reset search UI each time the tab gains focus
+      setShowSearch(false);
+      setSearch('');
+      return () => {};
+    }, [])
+  );
+
+  const filteredItems = React.useMemo(() => {
+    if (!search.trim()) return items;
+    const q = search.trim().toLowerCase();
+    return items.filter((item) => {
+      const title = (item.title || '').toLowerCase();
+      const desc = (item.description || '').toLowerCase();
+      const tags = Array.isArray(item.tags) ? item.tags.join(' ').toLowerCase() : '';
+      return title.includes(q) || desc.includes(q) || tags.includes(q);
+    });
+  }, [items, search]);
 
   const confirmDelete = (id: string) => {
     Alert.alert(
@@ -137,18 +161,41 @@ export default function HomeScreen() {
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hello, {user?.firstName || 'there'} ✨</Text>
-          <Text style={styles.subtitle}>Your saved content</Text>
-        </View>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>Hello, {user?.firstName || 'there'} ✨</Text>
+            <Text style={styles.subtitle}>Your saved content</Text>
+          </View>
 
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => {
+              setShowSearch((prev) => !prev);
+              if (showSearch) setSearch('');
+            }}
+          >
             <Search size={24} color={Colors.text} />
           </TouchableOpacity>
         </View>
       </View>
+
+      {showSearch && (
+        <View style={styles.searchBar}>
+          <Search size={18} color={Colors.textSecondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by title, description, or tags"
+            placeholderTextColor={Colors.textSecondary}
+            value={search}
+            onChangeText={setSearch}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            autoFocus
+          />
+        </View>
+      )}
 
       {/* Content Grid */}
       <ScrollView
@@ -169,16 +216,18 @@ export default function HomeScreen() {
       >
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
-              No saved content yet
+              {search.trim() ? 'No items match your search' : 'No saved content yet'}
             </Text>
-            <Text style={styles.emptyStateSubtext}>Start saving your favorite content!</Text>
+            <Text style={styles.emptyStateSubtext}>
+              {search.trim() ? 'Try a different keyword' : 'Start saving your favorite content!'}
+            </Text>
           </View>
         ) : (
           <View style={styles.grid}>
-            {items.map((item, index) => (
+            {filteredItems.map((item, index) => (
               <Animated.View
                 key={item.id}
                 entering={FadeInDown.delay(index * 100).springify()}
@@ -339,6 +388,24 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: Colors.text,
   },
   scrollView: {
     flex: 1,
