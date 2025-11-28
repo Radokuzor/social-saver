@@ -1,5 +1,6 @@
 // app/(tabs)/add.tsx
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowLeft, FolderPlus, Image as ImageIcon, Link2, Sparkles, Video, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
@@ -15,6 +16,7 @@ import {
     TextInput,
     TouchableOpacity,
     View,
+    Keyboard,
 } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { analyzeContentWithAI } from '../../services/ai';
@@ -64,6 +66,7 @@ const [newFolderName, setNewFolderName] = useState('');
 const [availableFolders, setAvailableFolders] = useState<string[]>([]);
 const [aiLoading, setAiLoading] = useState(false);
 const [newTag, setNewTag] = useState('');
+    const [clipboardPrefill, setClipboardPrefill] = useState(false);
 
     useEffect(() => {
         const loadFolders = async () => {
@@ -103,6 +106,22 @@ const [newTag, setNewTag] = useState('');
         setShowNewFolderInput(false);
         setNewFolderName('');
         setNewTag('');
+        setClipboardPrefill(false);
+    };
+
+    const tryPrefillFromClipboard = async () => {
+        if (clipboardPrefill || url) return;
+        try {
+            const clip = await Clipboard.getStringAsync();
+            const trimmed = clip.trim();
+            const looksLikeUrl = /^https?:\/\//i.test(trimmed) || trimmed.includes('.');
+            if (trimmed && looksLikeUrl) {
+                setUrl(trimmed);
+                setClipboardPrefill(true);
+            }
+        } catch (err) {
+            console.warn('Clipboard prefill skipped', err);
+        }
     };
 
     const pickImage = async () => {
@@ -275,7 +294,8 @@ const [newTag, setNewTag] = useState('');
                 type: contentType,
                 url: contentType === 'url' ? url : undefined,
                 mediaUri: contentType !== 'url' ? mediaUri : undefined,
-                title: metadataTitle || title,
+                // Always honor user-edited title; fall back to metadata only if empty
+                title: title || metadataTitle,
                 description,
                 tags,
                 folderName: selectedFolder || undefined,
@@ -284,7 +304,10 @@ const [newTag, setNewTag] = useState('');
             });
 
             Alert.alert('Success!', 'Your content has been saved', [
-                { text: 'OK', onPress: () => resetForm() }
+                { text: 'OK', onPress: () => {
+                    resetForm();
+                    router.replace('/(tabs)');
+                } }
             ]);
         } catch (error) {
             console.error('Save failed', error);
@@ -328,6 +351,7 @@ const [newTag, setNewTag] = useState('');
                 style={styles.scrollView}
                 contentContainerStyle={styles.contentContainer}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
             >
                 {!contentType ? (
                     /* Type Selection */
@@ -392,12 +416,16 @@ const [newTag, setNewTag] = useState('');
                                         autoCapitalize="none"
                                         autoCorrect={false}
                                         keyboardType="url"
+                                        onFocus={tryPrefillFromClipboard}
                                     />
                                 </View>
 
                                 <TouchableOpacity
                                     style={[styles.analyzeButton, !url && styles.analyzeButtonDisabled]}
-                                    onPress={analyzeContent}
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        analyzeContent();
+                                    }}
                                     disabled={!url || isAnalyzing}
                                 >
                                     {isAnalyzing ? (

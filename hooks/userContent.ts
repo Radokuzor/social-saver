@@ -1,6 +1,6 @@
 // hooks/useContent.ts
 import { useAuth } from '@clerk/clerk-expo';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { deleteObject, ref } from 'firebase/storage';
 import { useCallback, useState } from 'react';
 import { analyzeContentWithAI } from '../services/ai';
@@ -249,12 +249,50 @@ export function useContent() {
         }
     }, [userId]);
 
+    const subscribeToContent = useCallback((onUpdate: (items: any[]) => void, folderId?: string) => {
+        if (!userId) return () => { };
+
+        const q = folderId
+            ? query(
+                collection(db, 'items'),
+                where('userId', '==', userId),
+                where('folderId', '==', folderId)
+            )
+            : query(
+                collection(db, 'items'),
+                where('userId', '==', userId)
+            );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            const mapped = snapshot.docs.map(doc => {
+                const data = doc.data() as any;
+                return {
+                    id: doc.id,
+                    ...data,
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
+                    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
+                };
+            }).sort((a, b) => {
+                const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return bDate - aDate;
+            });
+            onUpdate(mapped);
+        }, (err) => {
+            console.error('Subscribe content error:', err);
+            setError(err.message);
+        });
+
+        return unsub;
+    }, [userId]);
+
     return {
         saveContent,
         getContent,
         updateContent,
         deleteContent,
         analyzeContent,
+        subscribeToContent,
         loading,
         error,
     };

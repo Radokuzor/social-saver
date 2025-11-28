@@ -1,6 +1,5 @@
 // app/(tabs)/index.tsx
 import { useAuth, useUser } from '@clerk/clerk-expo';
-import { useFocusEffect } from '@react-navigation/native';
 import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -13,6 +12,7 @@ import {
   Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -40,7 +40,7 @@ const Colors = {
 };
 
 export default function HomeScreen() {
-  const { getContent, deleteContent } = useContent();
+  const { getContent, deleteContent, subscribeToContent } = useContent();
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const router = useRouter();
@@ -48,7 +48,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false);
   const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set());
   const scrollViewRef = useRef<ScrollView>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadContent = useCallback(async () => {
     if (!isSignedIn) return;
@@ -66,10 +66,20 @@ export default function HomeScreen() {
   }, [isSignedIn, getContent]);
 
   useEffect(() => {
-    if (isSignedIn && !hasLoaded) {
-      loadContent().finally(() => setHasLoaded(true));
+    if (!isSignedIn) return;
+    const unsub = subscribeToContent(setItems);
+    return () => unsub && unsub();
+  }, [isSignedIn, subscribeToContent]);
+
+  const onRefresh = useCallback(async () => {
+    if (!isSignedIn) return;
+    try {
+      setRefreshing(true);
+      await loadContent();
+    } finally {
+      setRefreshing(false);
     }
-  }, [isSignedIn, hasLoaded, loadContent]);
+  }, [isSignedIn, loadContent]);
 
   const confirmDelete = (id: string) => {
     Alert.alert(
@@ -148,6 +158,14 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16} // Update every 16ms for smooth tracking
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
       >
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
