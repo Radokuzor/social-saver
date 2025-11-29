@@ -12,18 +12,26 @@ import {
     Trash2,
     User,
 } from 'lucide-react-native';
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
+    Modal,
     SafeAreaView,
     ScrollView,
     StatusBar,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
+    Linking,
 } from 'react-native';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-expo';
+import { useContent } from '../../hooks/userContent';
+import { useFolders } from '../../hooks/useFolders';
+import { useTheme } from '../../contexts/ThemeProvider';
+import { db } from '../../services/firebase';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 
 const Colors = {
     primary: '#ec4899',
@@ -40,6 +48,75 @@ export default function ProfileScreen() {
     const { isSignedIn } = useAuth();
     const { user } = useUser();
     const { signOut } = useClerk();
+    const { getContent } = useContent();
+    const { getFolders } = useFolders();
+    const { colors, setTheme, theme } = useTheme();
+    const [itemCount, setItemCount] = useState<number | null>(null);
+    const [collectionCount, setCollectionCount] = useState<number | null>(null);
+    const [tagCount, setTagCount] = useState<number | null>(null);
+    const [showAppearanceModal, setShowAppearanceModal] = useState(false);
+    const [appearance, setAppearance] = useState<'pink' | 'grey' | 'purple'>(theme);
+    const [showProfileModal, setShowProfileModal] = useState(false);
+    const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+    const [handleInput, setHandleInput] = useState('');
+    const [phoneInput, setPhoneInput] = useState('');
+    const [handleError, setHandleError] = useState<string | null>(null);
+    const [savingProfile, setSavingProfile] = useState(false);
+    const [profileHandle, setProfileHandle] = useState<string | null>(null);
+    const [profilePhone, setProfilePhone] = useState<string | null>(null);
+    const [showSupportModal, setShowSupportModal] = useState(false);
+    const ensureCountryCode = (raw: string) => {
+        const trimmed = raw.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('+')) {
+            return `+${trimmed.replace(/[^\d]/g, '')}`;
+        }
+        return `+1${trimmed.replace(/[^\d]/g, '')}`;
+    };
+
+    const loadStats = useCallback(async () => {
+        if (!isSignedIn) {
+            setItemCount(null);
+            setCollectionCount(null);
+            setTagCount(null);
+            setProfileHandle(null);
+            setProfilePhone(null);
+            return;
+        }
+        try {
+            const [items, folders] = await Promise.all([
+                getContent(),
+                getFolders(),
+            ]);
+            setItemCount(items.length);
+            setCollectionCount(folders.length);
+            const tags = new Set<string>();
+            items.forEach((i: any) => {
+                if (Array.isArray(i.tags)) {
+                    i.tags.forEach((t: string) => tags.add(t));
+                }
+            });
+            setTagCount(tags.size);
+
+            // Load profile info
+            const docRef = doc(db, 'profiles', user?.id || '');
+            const snap = await getDoc(docRef);
+            if (snap.exists()) {
+                const data = snap.data() as any;
+                setProfileHandle(data.handle || null);
+                setProfilePhone(data.phoneNumber || null);
+            } else {
+                setProfileHandle(null);
+                setProfilePhone(null);
+            }
+        } catch (err) {
+            console.error('Load stats failed', err);
+        }
+    }, [isSignedIn, getContent, getFolders]);
+
+    useEffect(() => {
+        loadStats();
+    }, [loadStats]);
     const handleLogout = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         Alert.alert(
@@ -83,12 +160,12 @@ export default function ProfileScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
             <StatusBar barStyle="dark-content" />
 
             {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Profile</Text>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>Profile</Text>
             </View>
 
             <ScrollView
@@ -97,8 +174,8 @@ export default function ProfileScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 {/* User Info Card */}
-                <View style={styles.userCard}>
-                    <View style={styles.avatar}>
+                <View style={[styles.userCard, { backgroundColor: colors.surface }]}>
+                    <View style={[styles.avatar, { backgroundColor: colors.primaryLight }]}>
                         <User size={32} color={Colors.primary} />
                     </View>
                     <View style={styles.userInfo}>
@@ -107,16 +184,25 @@ export default function ProfileScreen() {
                                 ? `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Your name'
                                 : 'Guest User'}
                         </Text>
-                        <Text style={styles.userEmail}>
+                        {profileHandle ? (
+                            <Text style={[styles.handle, { color: colors.primary }]}>@{profileHandle}</Text>
+                        ) : null}
+                        <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
                             {isSignedIn ? (user?.primaryEmailAddress?.emailAddress || 'email not set') : 'Not signed in'}
                         </Text>
+                        {profilePhone ? (
+                            <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{profilePhone}</Text>
+                        ) : null}
                     </View>
                     {isSignedIn && (
                         <TouchableOpacity
                             style={styles.editButton}
                             onPress={() => {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                Alert.alert('Edit profile', 'Profile editing coming soon.');
+                                setHandleInput(profileHandle ? `@${profileHandle}` : '');
+                                setPhoneInput(profilePhone || '');
+                                setHandleError(null);
+                                setShowProfileModal(true);
                             }}
                         >
                             <Text style={styles.editButtonText}>Edit</Text>
@@ -125,69 +211,75 @@ export default function ProfileScreen() {
                 </View>
 
                 {/* Stats */}
-                <View style={styles.statsContainer}>
+                <View style={[styles.statsContainer, { backgroundColor: colors.surface }]}>
                     <View style={styles.statItem}>
-                        <Text style={styles.statValue}>127</Text>
-                        <Text style={styles.statLabel}>Items Saved</Text>
+                        <Text style={[styles.statValue, { color: colors.text }]}>{itemCount ?? '—'}</Text>
+                        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Items Saved</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
-                        <Text style={styles.statValue}>12</Text>
-                        <Text style={styles.statLabel}>Collections</Text>
+                        <Text style={[styles.statValue, { color: colors.text }]}>{collectionCount ?? '—'}</Text>
+                        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Collections</Text>
                     </View>
                     <View style={styles.statDivider} />
                     <View style={styles.statItem}>
-                        <Text style={styles.statValue}>48</Text>
-                        <Text style={styles.statLabel}>Tags</Text>
+                        <Text style={[styles.statValue, { color: colors.text }]}>{tagCount ?? '—'}</Text>
+                        <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Tags</Text>
                     </View>
                 </View>
 
                 {/* Settings Sections */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Preferences</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Preferences</Text>
                     <SettingItem
                         icon={Palette}
                         label="Appearance"
                         subtitle="Customize your experience"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                        onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setShowAppearanceModal(true);
+                        }}
+                        colors={colors}
                     />
-                    <SettingItem
-                        icon={Bell}
-                        label="Notifications"
-                        subtitle="Manage your notifications"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
-                    />
+                    {/* Notifications will be used later */}
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Account</Text>
-                    <SettingItem
-                        icon={Lock}
-                        label="Privacy & Security"
-                        subtitle="Manage your privacy settings"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
-                    />
+                    <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Account</Text>
+                    {/* Privacy & Security temporarily hidden */}
                     <SettingItem
                         icon={Settings}
                         label="Account Settings"
                         subtitle="Update your account details"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                        onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            router.push('/pricing');
+                        }}
+                        colors={colors}
                     />
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Support</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Support</Text>
                     <SettingItem
                         icon={HelpCircle}
                         label="Help & Support"
                         subtitle="Get help with the app"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                        onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setShowSupportModal(true);
+                        }}
+                        colors={colors}
                     />
                     <SettingItem
                         icon={FileText}
                         label="Terms & Privacy"
                         subtitle="Read our policies"
-                        onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+                        onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setShowPrivacyModal(true);
+                        }}
+                        colors={colors}
                     />
                 </View>
 
@@ -200,6 +292,7 @@ export default function ProfileScreen() {
                         labelColor={Colors.danger}
                         onPress={handleLogout}
                         showChevron={false}
+                        colors={colors}
                     />
                     <SettingItem
                         icon={Trash2}
@@ -208,6 +301,7 @@ export default function ProfileScreen() {
                         labelColor={Colors.danger}
                         onPress={handleDeleteAccount}
                         showChevron={false}
+                        colors={colors}
                     />
                 </View>
 
@@ -229,7 +323,264 @@ export default function ProfileScreen() {
                     </View>
                 </View>
             )}
+
+            {/* Appearance Modal */}
+            <Modal
+                visible={showAppearanceModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowAppearanceModal(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={[styles.modalCard, { backgroundColor: colors.background }]}>
+                        <Text style={styles.modalTitle}>Choose appearance</Text>
+                        <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>Pick a palette that suits you.</Text>
+
+                        <View style={styles.appearanceList}>
+                            <AppearanceOption
+                                label="Light & Pink"
+                                description="Current look"
+                                colors={['#fdf2f8', '#ec4899', '#ffffff']}
+                                selected={appearance === 'pink'}
+                                onSelect={() => { setAppearance('pink'); setTheme('pink'); }}
+                            />
+                            <AppearanceOption
+                                label="Dark & Grey"
+                                description="Low contrast, night friendly"
+                                colors={['#111827', '#1f2937', '#4b5563']}
+                                selected={appearance === 'grey'}
+                                onSelect={() => { setAppearance('grey'); setTheme('grey'); }}
+                            />
+                            <AppearanceOption
+                                label="Purple & Blue"
+                                description="Cool gradient vibes"
+                                colors={['#312e81', '#4338ca', '#2563eb']}
+                                selected={appearance === 'purple'}
+                                onSelect={() => { setAppearance('purple'); setTheme('purple'); }}
+                            />
+                        </View>
+
+                        <TouchableOpacity
+                            style={[styles.modalClose, { backgroundColor: colors.primary }]}
+                            onPress={() => setShowAppearanceModal(false)}
+                        >
+                            <Text style={styles.modalCloseText}>Done</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Profile edit modal */}
+            <Modal
+                visible={showProfileModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowProfileModal(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={[styles.modalCard, { backgroundColor: colors.background }]}>
+                        <Text style={styles.modalTitle}>Edit profile</Text>
+                        <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                            Set a unique @handle and optional phone number.
+                        </Text>
+
+                        <Text style={styles.fieldLabel}>@ Handle</Text>
+                        <TextInput
+                            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                            placeholder="@yourhandle"
+                            placeholderTextColor={colors.textSecondary}
+                            value={handleInput}
+                            onChangeText={(t) => {
+                                setHandleInput(t);
+                                setHandleError(null);
+                            }}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                        {handleError ? <Text style={styles.errorText}>{handleError}</Text> : null}
+
+                        <Text style={styles.fieldLabel}>Phone number</Text>
+                            <TextInput
+                            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                            placeholder="+1 555 555 5555"
+                            placeholderTextColor={colors.textSecondary}
+                            value={phoneInput}
+                            onChangeText={setPhoneInput}
+                            keyboardType="phone-pad"
+                        />
+
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity
+                                style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => setShowProfileModal(false)}
+                            >
+                                <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                                onPress={async () => {
+                                    if (!user?.id) return;
+                                    const trimmed = handleInput.trim().replace(/^@/, '');
+                                    if (!trimmed) {
+                                        setHandleError('Handle is required');
+                                        return;
+                                    }
+                                    const canonical = trimmed.toLowerCase();
+                                    setSavingProfile(true);
+                                    try {
+                                        // Ensure handle is unique
+                                        const handlesRef = collection(db, 'profiles');
+                                        const q = query(handlesRef, where('handleLower', '==', canonical));
+                                        const snap = await getDocs(q);
+                                        const taken = snap.docs.some(d => d.id !== user.id);
+                                        if (taken) {
+                                            setHandleError('Handle already taken. Choose another.');
+                                            setSavingProfile(false);
+                                            return;
+                                        }
+                                        const normalizedPhone = phoneInput ? ensureCountryCode(phoneInput) : '';
+                                        await setDoc(doc(db, 'profiles', user.id), {
+                                            userId: user.id,
+                                            handle: trimmed,
+                                            handleLower: canonical,
+                                            phoneNumber: normalizedPhone,
+                                            updatedAt: new Date(),
+                                        }, { merge: true });
+                                        setProfileHandle(trimmed);
+                                        setProfilePhone(normalizedPhone || null);
+                                        setShowProfileModal(false);
+                                    } catch (err) {
+                                        console.error('Save profile failed', err);
+                                        setHandleError('Could not save. Please try again.');
+                                    } finally {
+                                        setSavingProfile(false);
+                                    }
+                                }}
+                                disabled={savingProfile}
+                            >
+                                <Text style={[styles.modalButtonText, { color: '#fff' }]}>{savingProfile ? 'Saving...' : 'Save'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Privacy & Security modal */}
+            <Modal
+                visible={showPrivacyModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowPrivacyModal(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={[styles.modalCard, { backgroundColor: colors.background, maxHeight: '80%' }]}>
+                        <Text style={styles.modalTitle}>Privacy & Security</Text>
+                        <ScrollView style={{ maxHeight: '70%' }} contentContainerStyle={{ paddingVertical: 8, gap: 8 }}>
+                            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                                We take your privacy seriously. Our pledge is to handle your data responsibly, transparently, and with respect for your control.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Data ownership: You own your content. We only use it to provide the service you expect, like saving, organizing, and syncing your items across devices.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Limited collection: We collect only what is needed to operate the app (account info, saved items, and basic usage diagnostics). We do not sell your data.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Security: We use industry-standard encryption in transit. Sensitive tokens are stored securely. Access is restricted and audited.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Sharing: We do not share your personal data with third parties except for essential service providers (e.g., storage, auth) under strict agreements.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Control: You can update your profile, remove content, or request account deletion at any time. We respect do-not-track signals within the app.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                • Transparency: We’ll notify you about any material changes to our practices and provide clear options to manage your preferences.
+                            </Text>
+                            <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
+                                This summary is for convenience; please review our full policy for details. By continuing, you acknowledge and agree to these practices.
+                            </Text>
+                        </ScrollView>
+                        <TouchableOpacity
+                            style={[styles.modalClose, { backgroundColor: colors.primary, alignSelf: 'flex-end', marginTop: 10 }]}
+                            onPress={() => setShowPrivacyModal(false)}
+                        >
+                            <Text style={[styles.modalCloseText, { color: '#fff' }]}>OK</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Support modal */}
+            <Modal
+                visible={showSupportModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowSupportModal(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <View style={[styles.modalCard, { backgroundColor: colors.background, maxHeight: '60%' }]}>
+                        <Text style={styles.modalTitle}>Help & Support</Text>
+                        <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                            Have a question or need assistance? Reach out to us:
+                        </Text>
+                        <TouchableOpacity
+                            style={[styles.contactRow, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                            onPress={() => Linking.openURL('mailto:admin@fourthwatchtech.com')}
+                        >
+                            <Text style={[styles.contactLabel, { color: colors.text }]}>Email</Text>
+                            <Text style={[styles.contactValue, { color: colors.primary }]}>admin@fourthwatchtech.com</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.contactRow, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                            onPress={() => Linking.openURL('tel:+15127666445')}
+                        >
+                            <Text style={[styles.contactLabel, { color: colors.text }]}>Phone</Text>
+                            <Text style={[styles.contactValue, { color: colors.primary }]}>+1 (512) 766-6445</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.modalClose, { backgroundColor: colors.primary, alignSelf: 'flex-end' }]}
+                            onPress={() => setShowSupportModal(false)}
+                        >
+                            <Text style={[styles.modalCloseText, { color: '#fff' }]}>OK</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
+    );
+}
+
+function AppearanceOption({
+    label,
+    description,
+    colors,
+    selected,
+    onSelect,
+}: {
+    label: string;
+    description: string;
+    colors: string[];
+    selected: boolean;
+    onSelect: () => void;
+}) {
+    return (
+        <TouchableOpacity
+            style={[styles.appearanceOption, selected && styles.appearanceOptionSelected]}
+            onPress={onSelect}
+            activeOpacity={0.75}
+        >
+            <View style={styles.appearanceSwatches}>
+                {colors.map((c) => (
+                    <View key={c} style={[styles.swatch, { backgroundColor: c }]} />
+                ))}
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={styles.appearanceLabel}>{label}</Text>
+                <Text style={styles.appearanceDescription}>{description}</Text>
+            </View>
+            {selected && <Text style={styles.appearanceSelectedText}>Selected</Text>}
+        </TouchableOpacity>
     );
 }
 
@@ -241,17 +592,21 @@ interface SettingItemProps {
     labelColor?: string;
     showChevron?: boolean;
     onPress: () => void;
+    colors: ReturnType<typeof useTheme>['colors'];
 }
 
 function SettingItem({
     icon: Icon,
     label,
     subtitle,
-    iconColor = Colors.text,
-    labelColor = Colors.text,
+    iconColor,
+    labelColor,
     showChevron = true,
     onPress,
+    colors,
 }: SettingItemProps) {
+    const resolvedIconColor = iconColor || colors.text;
+    const resolvedLabelColor = labelColor || colors.text;
     return (
         <TouchableOpacity
             style={styles.settingItem}
@@ -259,15 +614,15 @@ function SettingItem({
             activeOpacity={0.6}
         >
             <View style={styles.settingLeft}>
-                <View style={[styles.settingIcon, { backgroundColor: `${iconColor}15` }]}>
-                    <Icon size={20} color={iconColor} />
+                <View style={[styles.settingIcon, { backgroundColor: `${resolvedIconColor}15` }]}>
+                    <Icon size={20} color={resolvedIconColor} />
                 </View>
                 <View style={styles.settingText}>
-                    <Text style={[styles.settingLabel, { color: labelColor }]}>{label}</Text>
-                    {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+                    <Text style={[styles.settingLabel, { color: resolvedLabelColor }]}>{label}</Text>
+                    {subtitle && <Text style={[styles.settingSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
                 </View>
             </View>
-            {showChevron && <ChevronRight size={20} color={Colors.textSecondary} />}
+            {showChevron && <ChevronRight size={20} color={colors.textSecondary} />}
         </TouchableOpacity>
     );
 }
@@ -462,6 +817,145 @@ const styles = StyleSheet.create({
     overlayButtonText: {
         color: '#ffffff',
         fontSize: 16,
+        fontWeight: '700',
+    },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.35)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    modalCard: {
+        width: '100%',
+        backgroundColor: '#fff',
+        borderRadius: 20,
+        padding: 20,
+        gap: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 12,
+        elevation: 6,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: Colors.text,
+    },
+    modalSubtitle: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginBottom: 6,
+    },
+    modalBody: {
+        fontSize: 14,
+        lineHeight: 20,
+    },
+    contactRow: {
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 12,
+        marginTop: 8,
+    },
+    contactLabel: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    contactValue: {
+        fontSize: 15,
+        fontWeight: '700',
+        marginTop: 4,
+    },
+    appearanceList: {
+        gap: 10,
+    },
+    appearanceOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        padding: 12,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        backgroundColor: Colors.surface,
+    },
+    appearanceOptionSelected: {
+        borderColor: Colors.primary,
+        backgroundColor: '#fdf2f8',
+    },
+    appearanceSwatches: {
+        flexDirection: 'row',
+        gap: 4,
+    },
+    swatch: {
+        width: 18,
+        height: 18,
+        borderRadius: 4,
+    },
+    appearanceLabel: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: Colors.text,
+    },
+    appearanceDescription: {
+        fontSize: 13,
+        color: Colors.textSecondary,
+    },
+    appearanceSelectedText: {
+        fontSize: 12,
+        color: Colors.primary,
+        fontWeight: '700',
+    },
+    modalClose: {
+        marginTop: 6,
+        alignSelf: 'flex-end',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 10,
+        backgroundColor: Colors.primary,
+    },
+    modalCloseText: {
+        color: '#fff',
+        fontWeight: '700',
+    },
+    fieldLabel: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: Colors.text,
+        marginTop: 6,
+    },
+    input: {
+        marginTop: 4,
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        fontSize: 15,
+        borderWidth: 1,
+    },
+    errorText: {
+        color: Colors.danger,
+        fontSize: 12,
+        marginTop: 4,
+    },
+    handle: {
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    modalActions: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 10,
+        marginTop: 12,
+    },
+    modalButton: {
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 12,
+    },
+    modalButtonText: {
+        fontSize: 15,
         fontWeight: '700',
     },
 });

@@ -1,4 +1,4 @@
-import { useAuth, useOAuth, useUser } from '@clerk/clerk-expo';
+import { useAuth, useOAuth, useSignUp, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { ArrowLeft } from 'lucide-react-native';
@@ -12,6 +12,7 @@ import {
     StatusBar,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -34,9 +35,13 @@ const Colors = {
 // Hook to warm up browser for better UX
 export const useWarmUpBrowser = () => {
     useEffect(() => {
-        void WebBrowser.warmUpAsync();
+        if (Platform.OS !== 'web') {
+            void WebBrowser.warmUpAsync();
+        }
         return () => {
-            void WebBrowser.coolDownAsync();
+            if (Platform.OS !== 'web') {
+                void WebBrowser.coolDownAsync();
+            }
         };
     }, []);
 };
@@ -45,8 +50,15 @@ export default function SignupScreen() {
     const router = useRouter();
     const { isSignedIn } = useAuth();
     const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
+    const { signUp, setActive } = useSignUp();
     const { user, isLoaded: userLoaded } = useUser();
     const [loadingGoogle, setLoadingGoogle] = useState(false);
+    const [loadingEmail, setLoadingEmail] = useState(false);
+    const [verifying, setVerifying] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [code, setCode] = useState('');
+    const [pendingVerification, setPendingVerification] = useState(false);
     const [syncedUser, setSyncedUser] = useState(false);
 
     // Warm up the browser
@@ -123,6 +135,48 @@ export default function SignupScreen() {
         }
     }, [startOAuthFlow]);
 
+    const handleEmailSignup = useCallback(async () => {
+        if (!signUp) return;
+        try {
+            setLoadingEmail(true);
+            await signUp.create({
+                emailAddress: email.trim(),
+                password: password,
+            });
+            await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+            setPendingVerification(true);
+            Alert.alert('Check your email', 'Enter the 6-digit code we sent to verify your account.');
+        } catch (error: any) {
+            console.error('Email sign-up failed:', error);
+            const message = error?.errors?.[0]?.longMessage || error?.message || 'Could not sign up. Please try again.';
+            Alert.alert('Sign Up Error', message);
+        } finally {
+            setLoadingEmail(false);
+        }
+    }, [email, password, signUp]);
+
+    const handleVerifyCode = useCallback(async () => {
+        if (!signUp) return;
+        try {
+            setVerifying(true);
+            const completeSignUp = await signUp.attemptEmailAddressVerification({
+                code: code.trim(),
+            });
+
+            if (completeSignUp.status === 'complete') {
+                await setActive?.({ session: completeSignUp.createdSessionId });
+            } else {
+                Alert.alert('Verification needed', 'Please complete verification steps.');
+            }
+        } catch (error: any) {
+            console.error('Email verification failed:', error);
+            const message = error?.errors?.[0]?.longMessage || error?.message || 'Invalid code. Please try again.';
+            Alert.alert('Verification Error', message);
+        } finally {
+            setVerifying(false);
+        }
+    }, [code, setActive, signUp]);
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar barStyle="dark-content" />
@@ -146,6 +200,77 @@ export default function SignupScreen() {
 
                 <View style={styles.content}>
                     <View style={styles.card}>
+                        <Text style={styles.sectionTitle}>Sign up with email</Text>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Email</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={email}
+                                onChangeText={setEmail}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                                placeholder="you@example.com"
+                                placeholderTextColor={Colors.textSecondary}
+                            />
+                        </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Password</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={password}
+                                onChangeText={setPassword}
+                                secureTextEntry
+                                placeholder="Create a password"
+                                placeholderTextColor={Colors.textSecondary}
+                            />
+                        </View>
+                        {!pendingVerification ? (
+                            <TouchableOpacity
+                                style={[styles.primaryButton, (loadingEmail || !email || !password) && styles.disabledButton]}
+                                onPress={handleEmailSignup}
+                                activeOpacity={0.9}
+                                disabled={loadingEmail || !email || !password}
+                            >
+                                {loadingEmail ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Text style={styles.primaryButtonText}>Create account</Text>
+                                )}
+                            </TouchableOpacity>
+                        ) : (
+                            <>
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>Verification code</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        value={code}
+                                        onChangeText={setCode}
+                                        keyboardType="number-pad"
+                                        placeholder="6-digit code"
+                                        placeholderTextColor={Colors.textSecondary}
+                                    />
+                                </View>
+                                <TouchableOpacity
+                                    style={[styles.primaryButton, (verifying || !code) && styles.disabledButton]}
+                                    onPress={handleVerifyCode}
+                                    activeOpacity={0.9}
+                                    disabled={verifying || !code}
+                                >
+                                    {verifying ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <Text style={styles.primaryButtonText}>Verify and continue</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </>
+                        )}
+
+                        <View style={styles.divider}>
+                            <View style={styles.dividerLine} />
+                            <Text style={styles.dividerText}>or</Text>
+                            <View style={styles.dividerLine} />
+                        </View>
+
                         <TouchableOpacity
                             style={styles.secondaryButton}
                             onPress={handleGoogleSignup}
@@ -213,6 +338,61 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 4 },
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: Colors.text,
+        marginBottom: 12,
+    },
+    inputGroup: {
+        marginBottom: 12,
+    },
+    label: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginBottom: 6,
+        fontWeight: '600',
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        fontSize: 15,
+        color: Colors.text,
+        backgroundColor: '#fff',
+    },
+    primaryButton: {
+        backgroundColor: Colors.primary,
+        borderRadius: 14,
+        paddingVertical: 12,
+        alignItems: 'center',
+        marginTop: 4,
+    },
+    primaryButtonText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    disabledButton: {
+        opacity: 0.6,
+    },
+    divider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginVertical: 16,
+        gap: 8,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: Colors.border,
+    },
+    dividerText: {
+        color: Colors.textSecondary,
+        fontWeight: '600',
     },
     secondaryButton: {
         backgroundColor: '#fff',

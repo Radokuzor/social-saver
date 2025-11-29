@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Search } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,21 +25,13 @@ import {
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useContent } from '../../hooks/userContent';
+import { useTheme } from '../../contexts/ThemeProvider';
 
 const { width, height } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
 const CARD_GAP = 12;
 const CARD_WIDTH = (width - (HORIZONTAL_PADDING * 2) - CARD_GAP) / 2;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
-
-const Colors = {
-  primary: '#ec4899',
-  background: '#ffffff',
-  surface: '#fafafa',
-  text: '#171717',
-  textSecondary: '#737373',
-  border: '#e5e5e5',
-};
 
 export default function HomeScreen() {
   const { getContent, deleteContent, subscribeToContent } = useContent();
@@ -53,6 +45,8 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const loadContent = useCallback(async () => {
     if (!isSignedIn) return;
@@ -157,15 +151,15 @@ export default function HomeScreen() {
   }, [items]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Hello, {user?.firstName || 'there'} ✨</Text>
-            <Text style={styles.subtitle}>Your saved content</Text>
-          </View>
+          <Text style={[styles.greeting, { color: colors.text }]}>Hello, {user?.firstName || 'there'} ✨</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your saved content</Text>
+        </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
@@ -175,18 +169,18 @@ export default function HomeScreen() {
               if (showSearch) setSearch('');
             }}
           >
-            <Search size={24} color={Colors.text} />
+            <Search size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
 
       {showSearch && (
-        <View style={styles.searchBar}>
-          <Search size={18} color={Colors.textSecondary} />
+        <View style={[styles.searchBar, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+          <Search size={18} color={colors.textSecondary} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search by title, description, or tags"
-            placeholderTextColor={Colors.textSecondary}
+            placeholderTextColor={colors.textSecondary}
             value={search}
             onChangeText={setSearch}
             autoCorrect={false}
@@ -209,13 +203,13 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
         {loading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
+          <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
         ) : filteredItems.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
@@ -237,6 +231,8 @@ export default function HomeScreen() {
                   isVisible={visibleIndices.has(index)}
                   onPress={() => router.push({ pathname: '/item/[id]', params: { id: item.id } })}
                   onLongPress={() => confirmDelete(item.id)}
+                  styles={styles}
+                  colors={colors}
                 />
               </Animated.View>
             ))}
@@ -252,11 +248,15 @@ function ContentCard({
   isVisible,
   onPress,
   onLongPress,
+  styles,
+  colors,
 }: {
   item: any;
   isVisible: boolean;
   onPress: () => void;
   onLongPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+  colors: any;
 }) {
   const videoRef = useRef<Video>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -299,7 +299,7 @@ function ContentCard({
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { backgroundColor: colors.background, shadowColor: colors.text }]}
       activeOpacity={0.8}
       onPress={() => {
         if (hasVideo) {
@@ -343,8 +343,8 @@ function ContentCard({
         {item.tags && item.tags.length > 0 && (
           <View style={styles.tags}>
             {item.tags.slice(0, 2).map((tag: string) => (
-              <View key={tag} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
+              <View key={tag} style={[styles.tag, { backgroundColor: colors.primaryLight }]}>
+                <Text style={[styles.tagText, { color: colors.primary }]}>{tag}</Text>
               </View>
             ))}
           </View>
@@ -354,10 +354,10 @@ function ContentCard({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: palette.background,
   },
   header: {
     flexDirection: 'row',
@@ -370,12 +370,12 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.text,
+    color: palette.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 15,
-    color: Colors.textSecondary,
+    color: palette.textSecondary,
   },
   headerActions: {
     flexDirection: 'row',
@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: palette.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -398,14 +398,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
     marginBottom: 10,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
-    color: Colors.text,
+    color: palette.text,
   },
   scrollView: {
     flex: 1,
@@ -421,11 +421,11 @@ const styles = StyleSheet.create({
   },
   card: {
     width: CARD_WIDTH,
-    backgroundColor: Colors.background,
+    backgroundColor: palette.background,
     borderRadius: 16,
     marginBottom: CARD_GAP,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: palette.text,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
   cardImage: {
     width: '100%',
     height: CARD_HEIGHT,
-    backgroundColor: Colors.surface,
+    backgroundColor: palette.surface,
   },
   cardContent: {
     padding: 12,
@@ -442,7 +442,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.text,
+    color: palette.text,
     marginBottom: 8,
     lineHeight: 18,
   },
@@ -452,24 +452,24 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tag: {
-    backgroundColor: '#fdf2f8',
+    backgroundColor: palette.primaryLight,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   tagText: {
     fontSize: 11,
-    color: Colors.primary,
+    color: palette.primary,
     fontWeight: '600',
   },
   placeholder: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: palette.surface,
   },
   placeholderText: {
     fontSize: 32,
-    color: Colors.textSecondary,
+    color: palette.textSecondary,
   },
   emptyState: {
     alignItems: 'center',
@@ -480,12 +480,12 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.text,
+    color: palette.text,
     marginBottom: 8,
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: palette.textSecondary,
     textAlign: 'center',
   },
 });

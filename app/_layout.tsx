@@ -1,18 +1,20 @@
+import { ClerkProvider } from '@clerk/clerk-expo';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import { ClerkProvider } from '@clerk/clerk-expo';
 import * as SecureStore from 'expo-secure-store';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { ThemeProvider as AppThemeProvider } from '../contexts/ThemeProvider';
 
 export {
   // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
+  ErrorBoundary
 } from 'expo-router';
 
 export const unstable_settings = {
@@ -67,15 +69,20 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const clerkKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
 
   return (
     <ClerkProvider publishableKey={clerkKey || ''} tokenCache={tokenCache}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-        </Stack>
-      </ThemeProvider>
+      <StripeProvider publishableKey={stripePublishableKey}>
+        <AppThemeProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+            </Stack>
+          </ThemeProvider>
+        </AppThemeProvider>
+      </StripeProvider>
     </ClerkProvider>
   );
 }
