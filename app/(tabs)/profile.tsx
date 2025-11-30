@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import {
     Bell,
@@ -90,10 +91,12 @@ export default function ProfileScreen() {
             return;
         }
         try {
+            console.log('[profile] loading stats');
             const [items, folders] = await Promise.all([
                 getContent(),
                 getFolders(),
             ]);
+            console.log('[profile] items:', items.length, 'folders:', folders.length);
             setItemCount(items.length);
             setCollectionCount(folders.length);
             const tags = new Set<string>();
@@ -121,12 +124,21 @@ export default function ProfileScreen() {
             }
         } catch (err) {
             console.error('Load stats failed', err);
+            setItemCount(0);
+            setCollectionCount(0);
+            setTagCount(0);
         }
-    }, [isSignedIn, getContent, getFolders]);
+    }, [isSignedIn, getContent, getFolders, user?.id]);
 
     useEffect(() => {
         loadStats();
     }, [loadStats]);
+
+    useFocusEffect(
+        useCallback(() => {
+            loadStats();
+        }, [loadStats])
+    );
     const handleLogout = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         Alert.alert(
