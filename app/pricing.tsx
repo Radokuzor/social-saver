@@ -3,7 +3,7 @@ import { useUser } from '@clerk/clerk-expo';
 import { useStripe } from '@stripe/stripe-react-native';
 import { useRouter, useNavigation } from 'expo-router';
 import { Check } from 'lucide-react-native';
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeProvider';
 import stripeClient from '../services/stripeClient';
+import { fetchUserProfile, saveUserSubscription } from '../services/userProfile';
 
 const { width } = Dimensions.get('window');
 
@@ -106,7 +107,7 @@ export default function PricingScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
-  const [currentPlan] = useState<string>('free');
+  const [currentPlan, setCurrentPlan] = useState<string>('free');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -120,6 +121,23 @@ export default function PricingScreen() {
       headerBackTitleVisible: true,
     });
   }, [navigation]);
+
+  // Load current plan from Firestore
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user?.id) return;
+      try {
+        const profile = await fetchUserProfile(user.id);
+        const planId = profile?.subscription?.planId;
+        const cycle = profile?.subscription?.billingCycle;
+        if (planId) setCurrentPlan(planId);
+        if (cycle) setBillingCycle(cycle);
+      } catch (err) {
+        console.warn('Could not load subscription', err);
+      }
+    };
+    loadProfile();
+  }, [user?.id]);
 
   const handleSelectPlan = async (planId: string) => {
     if (planId === currentPlan || planId === 'free') return;
@@ -193,6 +211,22 @@ export default function PricingScreen() {
         throw presentResponse.error;
       }
 
+      // Persist subscription details
+      if (user?.id) {
+        try {
+          await saveUserSubscription(user.id, {
+            planId: selectedPlan.id,
+            planName: selectedPlan.name,
+            billingCycle,
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: subResp.subscriptionId || subResp.subscription_id || '',
+          });
+          setCurrentPlan(selectedPlan.id);
+        } catch (persistErr) {
+          console.warn('Save subscription failed', persistErr);
+        }
+      }
+
       Alert.alert(
         'Payment Successful!',
         `Welcome to ${selectedPlan.name}! Your subscription is now active.`
@@ -230,6 +264,9 @@ export default function PricingScreen() {
           <Text style={styles.title}>Choose Your Plan</Text>
           <Text style={styles.subtitle}>
             Upgrade to unlock more space and smarter AI sorting.
+          </Text>
+          <Text style={styles.currentPlanText}>
+            Current plan: {plans.find(p => p.id === currentPlan)?.name || 'Free'}
           </Text>
         </View>
 
@@ -403,6 +440,12 @@ const createStyles = (Colors: any) => StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 30,
+  },
+  currentPlanText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.primary,
   },
   backButton: {
     fontSize: 16,
