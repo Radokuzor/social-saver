@@ -8,6 +8,7 @@ import {
     ActivityIndicator,
     Alert,
     Dimensions,
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StatusBar,
@@ -52,6 +53,7 @@ export default function CollectionsScreen() {
     const router = useRouter();
     const [folders, setFolders] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [creating, setCreating] = useState(false);
     const [newFolder, setNewFolder] = useState('');
     const [hasLoaded, setHasLoaded] = useState(false);
@@ -87,6 +89,16 @@ export default function CollectionsScreen() {
             loadFolders().finally(() => setHasLoaded(true));
         }
     }, [isSignedIn, hasLoaded, loadFolders]);
+
+    const onRefresh = useCallback(async () => {
+        if (!isSignedIn) return;
+        try {
+            setRefreshing(true);
+            await loadFolders();
+        } finally {
+            setRefreshing(false);
+        }
+    }, [isSignedIn, loadFolders]);
 
     const handleCreateFolder = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -154,6 +166,14 @@ export default function CollectionsScreen() {
                 style={styles.scrollView}
                 contentContainerStyle={styles.contentContainer}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={onRefresh}
+                        tintColor={Colors.primary}
+                        colors={[Colors.primary]}
+                    />
+                }
             >
                 {loading ? (
                     <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />

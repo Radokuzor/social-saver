@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, FolderPlus, Image as ImageIcon, Link2, Sparkles, Video, X } from 'lucide-react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -67,6 +67,8 @@ export default function AddScreen() {
     const [aiLoading, setAiLoading] = useState(false);
     const [newTag, setNewTag] = useState('');
     const [clipboardPrefill, setClipboardPrefill] = useState(false);
+    const uniqueAvailableFolders = useMemo(() => Array.from(new Set(availableFolders)), [availableFolders]);
+    const uniqueSuggestedFolders = useMemo(() => Array.from(new Set(suggestedFolders)), [suggestedFolders]);
 
     useEffect(() => {
         const loadFolders = async () => {
@@ -537,7 +539,7 @@ export default function AddScreen() {
                                             showsHorizontalScrollIndicator={false}
                                             contentContainerStyle={{ gap: 8 }}
                                         >
-                                            {availableFolders.map((folder) => (
+                                            {uniqueAvailableFolders.map((folder) => (
                                                 <TouchableOpacity
                                                     key={`avail-${folder}`}
                                                     style={[
@@ -558,9 +560,9 @@ export default function AddScreen() {
                                                 </TouchableOpacity>
                                             ))}
                                         </ScrollView>
-                                        {suggestedFolders.map((folder) => (
+                                        {uniqueSuggestedFolders.map((folder) => (
                                             <TouchableOpacity
-                                                key={folder}
+                                                key={`suggested-${folder}`}
                                                 style={[
                                                     styles.folderChip,
                                                     selectedFolder === folder && styles.folderChipSelected

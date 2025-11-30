@@ -21,6 +21,7 @@ if (missing.length) {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
+// Default Firestore (no long polling) to avoid transport flag conflicts
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);

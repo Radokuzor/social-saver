@@ -21,6 +21,8 @@ export async function extractUrlMetadata(url: string): Promise<UrlMetadata> {
     const isYouTube = hostname.includes('youtube.com') || hostname.includes('youtu.be');
     const isInstagram = hostname.includes('instagram.com');
     const isTikTok = hostname.includes('tiktok.com');
+    const youtubeId = isYouTube ? extractYouTubeId(url) : null;
+    const youtubeThumb = youtubeId ? `https://img.youtube.com/vi/${youtubeId}/maxresdefault.jpg` : '';
 
     // Prefer oEmbed/JsonLink for YouTube, JsonLink for Instagram, TikTok oEmbed
     if (isYouTube || isInstagram) {
@@ -126,7 +128,7 @@ export async function extractUrlMetadata(url: string): Promise<UrlMetadata> {
         return {
             title: data.title || 'Untitled',
             description: data.description || '',
-            image: data.image?.url || data.logo?.url || '',
+            image: data.image?.url || data.logo?.url || youtubeThumb || '',
             domain: new URL(url).hostname,
             url: url,
         };
@@ -158,7 +160,7 @@ export async function extractUrlMetadata(url: string): Promise<UrlMetadata> {
             return {
                 title: linkPreviewResponse.data.title || 'Untitled',
                 description: linkPreviewResponse.data.description || '',
-                image: linkPreviewResponse.data.image || '',
+                image: linkPreviewResponse.data.image || youtubeThumb || '',
                 domain: new URL(url).hostname,
                 url: url,
             };
@@ -173,8 +175,14 @@ export async function extractUrlMetadata(url: string): Promise<UrlMetadata> {
             return {
                 title: 'Untitled',
                 description: 'No description available',
-                image: '',
-                domain: new URL(url).hostname,
+                image: youtubeThumb || '',
+                domain: (() => {
+                    try {
+                        return new URL(url).hostname;
+                    } catch {
+                        return '';
+                    }
+                })(),
                 url: url,
             };
         }
@@ -188,5 +196,30 @@ export function isValidUrl(urlString: string): boolean {
         return true;
     } catch (e) {
         return false;
+    }
+}
+
+function extractYouTubeId(raw: string): string | null {
+    try {
+        const u = new URL(raw);
+        if (u.hostname.includes('youtu.be')) {
+            return u.pathname.replace('/', '').split('?')[0] || null;
+        }
+        if (u.searchParams.get('v')) {
+            return u.searchParams.get('v');
+        }
+        const parts = u.pathname.split('/');
+        // handle /shorts/<id> or /embed/<id>
+        const shortsIndex = parts.indexOf('shorts');
+        if (shortsIndex !== -1 && parts[shortsIndex + 1]) {
+            return parts[shortsIndex + 1];
+        }
+        const embedIndex = parts.indexOf('embed');
+        if (embedIndex !== -1 && parts[embedIndex + 1]) {
+            return parts[embedIndex + 1];
+        }
+        return null;
+    } catch {
+        return null;
     }
 }
