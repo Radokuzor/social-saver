@@ -58,7 +58,9 @@ export default function ItemDetail() {
 
   const isVideo = item.type === 'video';
   const videoUri = isVideo ? (item.mediaUrl || item.url || '') : '';
-  const imageUri = !isVideo ? (item.thumbnail || item.mediaUrl || '') : (item.thumbnail || '');
+  const imageUri = !isVideo
+    ? (item.thumbnail || item.mediaUrl || item.metadata?.image || '')
+    : (item.thumbnail || item.metadata?.image || '');
   const hasVideo = isVideo && !!videoUri;
 
   return (

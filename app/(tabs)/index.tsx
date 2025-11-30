@@ -45,7 +45,6 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string>('');
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -55,13 +54,10 @@ export default function HomeScreen() {
       console.log('[home] 🚀 Starting content load...');
       console.log('[home] Auth status:', { isSignedIn, userId });
 
-      setDebugInfo(`Loading... (Auth: ${isSignedIn ? 'Yes' : 'No'})`);
-
       const data = await getContent();
       console.log('[home] ✅ Content loaded:', data?.length, 'items');
 
       setItems(data);
-      setDebugInfo(`Loaded ${data?.length || 0} items`);
     } catch (err: any) {
       console.error('[home] ❌ Load items failed:', err);
       console.error('[home] Error details:', {
@@ -69,7 +65,6 @@ export default function HomeScreen() {
         code: err?.code,
         stack: err?.stack?.substring(0, 200),
       });
-      setDebugInfo(`Error: ${err?.message || 'Unknown error'}`);
 
       Alert.alert(
         'Failed to Load Content',
@@ -92,7 +87,6 @@ export default function HomeScreen() {
       loadContent();
     } else {
       setItems([]);
-      setDebugInfo('Not signed in');
     }
   }, [isSignedIn, userId, loadContent]);
 
@@ -102,7 +96,6 @@ export default function HomeScreen() {
       if (!isSignedIn) {
         console.log('[home] User not signed in, skipping load');
         setItems([]);
-        setDebugInfo('Not signed in');
         return;
       }
       let mounted = true;
@@ -113,13 +106,9 @@ export default function HomeScreen() {
           if (mounted) {
             console.log('[home] Setting items on focus:', data?.length);
             setItems(data);
-            setDebugInfo(`Focus load: ${data?.length || 0} items`);
           }
         } catch (err) {
           console.error('[home] load on focus failed', err);
-          if (mounted) {
-            setDebugInfo(`Focus error: ${(err as any)?.message}`);
-          }
         }
       })();
       return () => {
@@ -133,7 +122,6 @@ export default function HomeScreen() {
     if (!isSignedIn) return;
     try {
       setRefreshing(true);
-      setDebugInfo('Refreshing...');
       await loadContent();
     } finally {
       setRefreshing(false);
@@ -217,11 +205,6 @@ export default function HomeScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Your saved content
           </Text>
-          {__DEV__ && debugInfo && (
-            <Text style={[styles.subtitle, { color: colors.primary, fontSize: 11 }]}>
-              Debug: {debugInfo}
-            </Text>
-          )}
         </View>
 
         <View style={styles.headerActions}>
@@ -286,23 +269,8 @@ export default function HomeScreen() {
               {search.trim() ? 'No items match your search' : 'No saved content yet'}
             </Text>
             <Text style={styles.emptyStateSubtext}>
-              {search.trim() ? 'Try a different keyword' : 'Start saving your favorite content!'}
+            {search.trim() ? 'Try a different keyword' : 'Start saving your favorite content!'}
             </Text>
-            {__DEV__ && (
-              <TouchableOpacity
-                onPress={loadContent}
-                style={{
-                  marginTop: 20,
-                  padding: 12,
-                  backgroundColor: colors.primary,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>
-                  Reload (Debug)
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         ) : (
           <View style={styles.grid}>
@@ -349,7 +317,9 @@ function ContentCard({
 
   const isVideo = item.type === 'video';
   const videoUri = isVideo ? (item.mediaUrl || item.url || '') : '';
-  const imageUri = !isVideo ? (item.thumbnail || item.mediaUrl || '') : (item.thumbnail || '');
+  const imageUri = !isVideo
+    ? (item.thumbnail || item.mediaUrl || item.metadata?.image || '')
+    : (item.thumbnail || item.metadata?.image || '');
   const hasVideo = isVideo && !!videoUri && !videoError;
   const hasImage = !isVideo && !!imageUri;
 
