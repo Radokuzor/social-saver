@@ -1,4 +1,4 @@
-import { useAuth, useOAuth, useSignUp, useUser } from '@clerk/clerk-expo';
+import { useAuth, useOAuth, useSignIn, useSignUp, useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { ArrowLeft } from 'lucide-react-native';
@@ -7,6 +7,9 @@ import {
     ActivityIndicator,
     Alert,
     KeyboardAvoidingView,
+    LayoutAnimation,
+    Keyboard,
+    TouchableWithoutFeedback,
     Platform,
     SafeAreaView,
     StatusBar,
@@ -51,6 +54,7 @@ export default function SignupScreen() {
     const { isSignedIn } = useAuth();
     const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
     const { signUp, setActive } = useSignUp();
+    const { signIn, setActive: setActiveSignIn, isLoaded: signInLoaded } = useSignIn();
     const { user, isLoaded: userLoaded } = useUser();
     const [loadingGoogle, setLoadingGoogle] = useState(false);
     const [loadingEmail, setLoadingEmail] = useState(false);
@@ -59,6 +63,7 @@ export default function SignupScreen() {
     const [password, setPassword] = useState('');
     const [code, setCode] = useState('');
     const [pendingVerification, setPendingVerification] = useState(false);
+    const [mode, setMode] = useState<'signup' | 'login'>('signup');
     const [syncedUser, setSyncedUser] = useState(false);
 
     // Warm up the browser
@@ -136,6 +141,48 @@ export default function SignupScreen() {
     }, [startOAuthFlow]);
 
     const handleEmailSignup = useCallback(async () => {
+        if (mode === 'login') {
+            if (!signInLoaded || !signIn) {
+                Alert.alert('Please wait', 'Sign-in is still loading. Try again in a moment.');
+                return;
+            }
+            try {
+                setLoadingEmail(true);
+                const res = await signIn.create({
+                    identifier: email.trim(),
+                    password,
+                });
+
+                if (res.status === 'complete') {
+                    await setActiveSignIn?.({ session: res.createdSessionId });
+                } else if (res.status === 'needs_first_factor' && res.supportedFirstFactors?.length) {
+                    const passwordFactor = res.supportedFirstFactors.find((f: any) => f.strategy === 'password');
+                    if (passwordFactor) {
+                        const attempt = await signIn.attemptFirstFactor({
+                            strategy: 'password',
+                            password,
+                        });
+                        if (attempt.status === 'complete') {
+                            await setActiveSignIn?.({ session: attempt.createdSessionId });
+                        } else {
+                            Alert.alert('Login Error', 'Additional steps required to sign in.');
+                        }
+                    } else {
+                        Alert.alert('Login Error', 'Password sign-in is not available for this account.');
+                    }
+                } else {
+                    Alert.alert('Login Error', 'Could not complete sign in. Please try again.');
+                }
+            } catch (error: any) {
+                console.error('Email login failed:', error);
+                const message = error?.errors?.[0]?.longMessage || error?.message || 'Could not sign in. Please try again.';
+                Alert.alert('Login Error', message);
+            } finally {
+                setLoadingEmail(false);
+            }
+            return;
+        }
+
         if (!signUp) return;
         try {
             setLoadingEmail(true);
@@ -153,7 +200,7 @@ export default function SignupScreen() {
         } finally {
             setLoadingEmail(false);
         }
-    }, [email, password, signUp]);
+    }, [email, password, signUp, signIn, signInLoaded, setActiveSignIn, setActive, mode]);
 
     const handleVerifyCode = useCallback(async () => {
         if (!signUp) return;
@@ -178,29 +225,32 @@ export default function SignupScreen() {
     }, [code, setActive, signUp]);
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" />
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-            >
-                <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={() => router.back()}
-                        activeOpacity={0.7}
-                    >
-                        <ArrowLeft size={22} color={Colors.text} />
-                        <Text style={styles.backButtonText}>Back</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Create Account</Text>
-                    <View style={{ width: 70 }} />
-                </View>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <SafeAreaView style={styles.container}>
+                <StatusBar barStyle="dark-content" />
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+                >
+                    <View style={styles.header}>
+                        <TouchableOpacity
+                            style={styles.backButton}
+                            onPress={() => router.back()}
+                            activeOpacity={0.7}
+                        >
+                            <ArrowLeft size={22} color={Colors.text} />
+                            <Text style={styles.backButtonText}>Back</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.headerTitle}>Create Account</Text>
+                        <View style={{ width: 70 }} />
+                    </View>
 
-                <View style={styles.content}>
-                    <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>Sign up with email</Text>
+                    <View style={styles.content}>
+                        <View style={styles.card}>
+                            <Text style={styles.sectionTitle}>
+                                {mode === 'login' ? 'Sign in with email' : 'Sign up with email'}
+                            </Text>
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>Email</Text>
                             <TextInput
@@ -231,11 +281,11 @@ export default function SignupScreen() {
                                 activeOpacity={0.9}
                                 disabled={loadingEmail || !email || !password}
                             >
-                                {loadingEmail ? (
-                                    <ActivityIndicator color="#fff" />
-                                ) : (
-                                    <Text style={styles.primaryButtonText}>Create account</Text>
-                                )}
+                            {loadingEmail ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                    <Text style={styles.primaryButtonText}>{mode === 'login' ? 'Sign in' : 'Create account'}</Text>
+                            )}
                             </TouchableOpacity>
                         ) : (
                             <>
@@ -285,12 +335,23 @@ export default function SignupScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    <TouchableOpacity onPress={() => router.back()} style={styles.loginHint}>
-                        <Text style={styles.loginText}>Already have an account? Log in</Text>
+                    <TouchableOpacity
+                        onPress={() => {
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setMode(prev => prev === 'signup' ? 'login' : 'signup');
+                            setPendingVerification(false);
+                            setCode('');
+                        }}
+                        style={styles.loginHint}
+                    >
+                        <Text style={styles.loginText}>
+                            {mode === 'signup' ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
+        </TouchableWithoutFeedback>
     );
 }
 
