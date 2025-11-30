@@ -180,7 +180,14 @@ export default function AddScreen() {
                     await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
                 } catch (limitErr: any) {
                     setIsAnalyzing(false);
-                    Alert.alert('AI limit reached', limitErr?.message || 'Upgrade your plan to use AI.');
+                    Alert.alert(
+                        'AI limit reached',
+                        limitErr?.message || 'Upgrade your plan to use more AI.',
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Upgrade', onPress: () => router.push('/pricing') },
+                        ]
+                    );
                     return;
                 }
             }
@@ -248,7 +255,14 @@ export default function AddScreen() {
                     await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
                 } catch (limitErr: any) {
                     setAiLoading(false);
-                    Alert.alert('AI limit reached', limitErr?.message || 'Upgrade your plan to use AI.');
+                    Alert.alert(
+                        'AI limit reached',
+                        limitErr?.message || 'Upgrade your plan to use more AI.',
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Upgrade', onPress: () => router.push('/pricing') },
+                        ]
+                    );
                     return;
                 }
             }
@@ -406,33 +420,27 @@ export default function AddScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            style={styles.typeCard}
-                            onPress={() => {
-                                handleSelectType('image');
-                                pickImage();
-                            }}
-                            activeOpacity={0.7}
+                            style={[styles.typeCard, styles.typeCardDisabled]}
+                            activeOpacity={1}
+                            disabled
                         >
                             <View style={[styles.typeIcon, { backgroundColor: '#f0f9ff' }]}>
-                                <ImageIcon size={28} color="#0ea5e9" />
+                                <ImageIcon size={28} color="#9ca3af" />
                             </View>
-                            <Text style={styles.typeTitle}>Image</Text>
-                            <Text style={styles.typeDescription}>Upload photos from your gallery</Text>
+                            <Text style={[styles.typeTitle, styles.typeDisabledText]}>Image (coming soon)</Text>
+                            <Text style={[styles.typeDescription, styles.typeDisabledText]}>Upload photos from your gallery</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            style={styles.typeCard}
-                            onPress={() => {
-                                handleSelectType('video');
-                                pickVideo();
-                            }}
-                            activeOpacity={0.7}
+                            style={[styles.typeCard, styles.typeCardDisabled]}
+                            activeOpacity={1}
+                            disabled
                         >
                             <View style={[styles.typeIcon, { backgroundColor: '#f5f3ff' }]}>
-                                <Video size={28} color={Colors.secondary} />
+                                <Video size={28} color="#9ca3af" />
                             </View>
-                            <Text style={styles.typeTitle}>Video</Text>
-                            <Text style={styles.typeDescription}>Save videos for later viewing</Text>
+                            <Text style={[styles.typeTitle, styles.typeDisabledText]}>Video (coming soon)</Text>
+                            <Text style={[styles.typeDescription, styles.typeDisabledText]}>Save videos for later viewing</Text>
                         </TouchableOpacity>
                     </Animated.View>
                 ) : (
@@ -777,10 +785,16 @@ const styles = StyleSheet.create({
         color: Colors.text,
         marginBottom: 6,
     },
+    typeDisabledText: {
+        color: Colors.textSecondary,
+    },
     typeDescription: {
         fontSize: 14,
         color: Colors.textSecondary,
         lineHeight: 20,
+    },
+    typeCardDisabled: {
+        opacity: 0.55,
     },
     inputSection: {
         gap: 20,

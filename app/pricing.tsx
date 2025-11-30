@@ -41,10 +41,10 @@ const plans: Plan[] = [
     name: 'Free',
     monthlyPrice: 0,
     yearlyPrice: 0,
-    itemLimit: '2 saves per day',
+    itemLimit: '20 saves per day',
     aiLimit: '10 AI auto-tags / month',
     features: [
-      '2 saves per day',
+      '20 saves per day',
       '10 AI auto-tags per month',
       'Regular search',
       'Mobile & web access',
