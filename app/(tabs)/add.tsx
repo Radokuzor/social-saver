@@ -248,15 +248,18 @@ export default function AddScreen() {
                 });
             }
 
-            setTitle(analysisResult.title || title);
+            // Prefer AI output, fall back to existing/metadata so UI updates consistently
+            setTitle(analysisResult.title || metadataTitle || title);
             setDescription(analysisResult.description || description);
-            setTags(analysisResult.tags || tags);
+            setTags(analysisResult.tags?.length ? analysisResult.tags : tags);
             const folders = analysisResult.suggestedFolders?.length
                 ? analysisResult.suggestedFolders
                 : [analysisResult.category || 'New Folder'];
             setSuggestedFolders(folders);
             setSelectedFolder(folders[0] || selectedFolder);
             setAiCategory(analysisResult.category || aiCategory);
+            setAnalyzed(true);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch (err) {
             console.error('AI magic failed', err);
             Alert.alert('AI magic failed', 'Please try again.');

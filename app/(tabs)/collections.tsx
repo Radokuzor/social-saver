@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Folder, MoreVertical, Plus } from 'lucide-react-native';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -19,8 +19,10 @@ import {
     View,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useFolders } from '../../hooks/useFolders';
 import { useContent } from '../../hooks/userContent';
+import { db } from '../../services/firebase';
 
 const { width } = Dimensions.get('window');
 const CARD_MARGIN = 16;
@@ -47,11 +49,13 @@ const folderColors = [
 ];
 
 export default function CollectionsScreen() {
-    const { getFolders, createFolder } = useFolders();
+    const { getFolders, createFolder, subscribeToFolders } = useFolders();
     const { getContent } = useContent();
-    const { isSignedIn } = useAuth();
+    const { isSignedIn, userId } = useAuth();
     const router = useRouter();
     const [folders, setFolders] = useState<any[]>([]);
+    const [folderDocs, setFolderDocs] = useState<any[]>([]);
+    const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [creating, setCreating] = useState(false);
@@ -72,23 +76,57 @@ export default function CollectionsScreen() {
                 }
                 return acc;
             }, {});
-            const merged = folderData.map(f => ({
-                ...f,
-                itemCount: counts[f.id] || 0
-            }));
-            setFolders(merged);
+            setFolderDocs(folderData);
+            setItemCounts(counts);
         } catch (err) {
             console.error('Load folders failed', err);
         } finally {
             setLoading(false);
         }
-    }, [isSignedIn, getFolders]);
+    }, [isSignedIn, getFolders, getContent]);
+
+    // Merge docs + counts whenever either changes
+    useEffect(() => {
+        if (!folderDocs) return;
+        setFolders(folderDocs.map(f => ({
+            ...f,
+            itemCount: itemCounts[f.id] || 0,
+        })));
+    }, [folderDocs, itemCounts]);
 
     useEffect(() => {
-        if (isSignedIn && !hasLoaded) {
+        if (!isSignedIn || !userId) return;
+
+        if (!hasLoaded) {
             loadFolders().finally(() => setHasLoaded(true));
         }
-    }, [isSignedIn, hasLoaded, loadFolders]);
+
+        // Realtime folders
+        const unsubFolders = subscribeToFolders(setFolderDocs);
+
+        // Realtime item counts
+        const itemsQuery = query(
+            collection(db, 'items'),
+            where('userId', '==', userId)
+        );
+        const unsubItems = onSnapshot(itemsQuery, (snap) => {
+            const counts = snap.docs.reduce((acc: Record<string, number>, docSnap) => {
+                const data = docSnap.data() as any;
+                if (data.folderId) {
+                    acc[data.folderId] = (acc[data.folderId] || 0) + 1;
+                }
+                return acc;
+            }, {} as Record<string, number>);
+            setItemCounts(counts);
+        }, (err) => {
+            console.error('[collections] items subscribe error', err);
+        });
+
+        return () => {
+            unsubFolders && unsubFolders();
+            unsubItems && unsubItems();
+        };
+    }, [isSignedIn, userId, subscribeToFolders, loadFolders, hasLoaded]);
 
     const onRefresh = useCallback(async () => {
         if (!isSignedIn) return;

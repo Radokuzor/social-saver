@@ -1,6 +1,6 @@
 // hooks/useFolders.ts
 import { useAuth } from '@clerk/clerk-expo';
-import { addDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { addDoc, collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { useCallback, useState } from 'react';
 import { db } from '../services/firebase';
 
@@ -61,5 +61,22 @@ export function useFolders() {
         }
     }, [userId]);
 
-    return { getFolders, createFolder, loading, error };
+    const subscribeToFolders = useCallback((onUpdate: (folders: FolderDoc[]) => void) => {
+        if (!userId) return () => {};
+        const q = query(collection(db, 'folders'), where('userId', '==', userId));
+        const unsub = onSnapshot(
+            q,
+            (snap) => {
+                const data = snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+                onUpdate(data);
+            },
+            (err) => {
+                console.error('[folders] subscribe error', err);
+                setError(err.message);
+            }
+        );
+        return unsub;
+    }, [userId]);
+
+    return { getFolders, createFolder, subscribeToFolders, loading, error };
 }
