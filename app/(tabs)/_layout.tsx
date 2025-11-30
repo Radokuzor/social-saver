@@ -1,7 +1,8 @@
 // app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import { Compass, FolderOpen, Home, Plus, User } from 'lucide-react-native';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 
 const Colors = {
   primary: '#ec4899',
@@ -20,6 +21,18 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textSecondary,
+        tabBarButton: ({ children, onPress, style, delayLongPress, accessibilityRole, ...rest }) => (
+          <TouchableOpacity
+            onPress={onPress}
+            style={style}
+            delayLongPress={delayLongPress ?? undefined}
+            accessibilityRole={accessibilityRole}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            activeOpacity={0.8}
+          >
+            {children}
+          </TouchableOpacity>
+        ),
         tabBarStyle: {
           backgroundColor: Colors.background,
           borderTopWidth: 0,
@@ -50,7 +63,7 @@ export default function TabLayout() {
             <View style={[
               styles.iconContainer,
               focused && styles.iconContainerActive
-            ]}>
+            ]} pointerEvents="none">
               <Home
                 size={24}
                 color={color}
@@ -69,7 +82,7 @@ export default function TabLayout() {
             <View style={[
               styles.iconContainer,
               focused && styles.iconContainerActive
-            ]}>
+            ]} pointerEvents="none">
               <FolderOpen
                 size={24}
                 color={color}
@@ -88,7 +101,7 @@ export default function TabLayout() {
             <View style={[
               styles.addButton,
               focused && styles.addButtonActive
-            ]}>
+            ]} pointerEvents="none">
               <Plus
                 size={28}
                 color="#ffffff"
@@ -108,7 +121,7 @@ export default function TabLayout() {
             <View style={[
               styles.iconContainer,
               focused && styles.iconContainerActive
-            ]}>
+            ]} pointerEvents="none">
               <User
                 size={24}
                 color={color}
@@ -127,7 +140,7 @@ export default function TabLayout() {
             <View style={[
               styles.iconContainer,
               focused && styles.iconContainerActive
-            ]}>
+            ]} pointerEvents="none">
               <Compass
                 size={24}
                 color={color}

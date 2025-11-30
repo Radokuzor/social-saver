@@ -1,10 +1,11 @@
 // app/pricing.tsx
 import { useUser } from '@clerk/clerk-expo';
 import { useStripe } from '@stripe/stripe-react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
 import { Check } from 'lucide-react-native';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   SafeAreaView,
@@ -50,7 +51,7 @@ const plans: Plan[] = [
   },
   {
     id: 'plus',
-    name: 'Plus',
+    name: 'Basic',
     monthlyPrice: 9.99,
     yearlyPrice: 9.99 * 12 * 0.9,
     itemLimit: '100 items/mo',
@@ -64,7 +65,7 @@ const plans: Plan[] = [
   },
   {
     id: 'pro',
-    name: 'Pro',
+    name: 'Better',
     monthlyPrice: 19.99,
     yearlyPrice: 19.99 * 12 * 0.9,
     itemLimit: 'Unlimited items',
@@ -81,9 +82,9 @@ const plans: Plan[] = [
   },
   {
     id: 'business',
-    name: 'Business',
-    monthlyPrice: 30.99,
-    yearlyPrice: 30.99 * 12 * 0.9,
+    name: 'Best',
+    monthlyPrice: 29.99,
+    yearlyPrice: 29.99 * 12 * 0.9,
     itemLimit: 'Unlimited items',
     aiLimit: 'Unlimited AI',
     features: [
@@ -98,6 +99,7 @@ const plans: Plan[] = [
 
 export default function PricingScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { user } = useUser();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -108,6 +110,16 @@ export default function PricingScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
+
+  // Style the native header back button and title
+  useLayoutEffect(() => {
+    navigation.setOptions?.({
+      headerBackTitle: 'Back',
+      headerTintColor: '#ec4899',
+      headerTitle: 'Pricing',
+      headerBackTitleVisible: true,
+    });
+  }, [navigation]);
 
   const handleSelectPlan = async (planId: string) => {
     if (planId === currentPlan || planId === 'free') return;
@@ -133,48 +145,34 @@ export default function PricingScreen() {
         return;
       }
 
-      // Create customer
-      let customerId: string | undefined;
-      try {
-        const customerResp = await stripeClient.createCustomer({
-          email,
-          name: name || undefined
-        });
-        customerId = customerResp.customerId || customerResp.customer?.id;
-      } catch (err) {
-        console.warn('Could not create customer:', err);
-      }
-
-      // Calculate amount
-      const price = billingCycle === 'monthly'
-        ? selectedPlan.monthlyPrice
-        : selectedPlan.yearlyPrice;
-
-      if (price <= 0) {
-        Alert.alert('Invalid amount', 'Selected plan has no charge.');
-        setIsProcessing(false);
-        return;
-      }
-
-      // Create payment intent
-      const piResp = await stripeClient.createPaymentIntent({
-        amount: price,
-        currency: 'usd',
-        customerId
+      // Ask server to create customer + subscription using Stripe Prices
+      const subResp = await stripeClient.createSubscription({
+        planId: selectedPlan.id,
+        billingCycle,
+        email,
+        name: name || undefined,
       });
 
-      const clientSecret = piResp.clientSecret ||
-        piResp.client_secret ||
-        piResp.clientSecret;
+      const clientSecret = subResp.paymentIntentClientSecret ||
+        subResp.clientSecret ||
+        subResp.payment_intent_client_secret;
 
-      if (!clientSecret) {
-        throw new Error('No client secret returned from server');
+      const customerId = subResp.customerId || subResp.customer_id;
+      const ephemeralKeySecret = subResp.ephemeralKeySecret ||
+        subResp.customerEphemeralKeySecret ||
+        subResp.ephemeral_key_secret;
+
+      if (!clientSecret || !customerId || !ephemeralKeySecret) {
+        throw new Error('Missing payment data from server. Please try again.');
       }
 
-      // Initialize payment sheet
+      // Initialize payment sheet with customer + ephemeral key for subscriptions
       const initResponse = await initPaymentSheet({
         paymentIntentClientSecret: clientSecret,
+        customerId,
+        customerEphemeralKeySecret: ephemeralKeySecret,
         merchantDisplayName: 'Social Saver',
+        allowsDelayedPaymentMethods: false,
         defaultBillingDetails: {
           name: name || undefined,
           email: email || undefined,
@@ -184,6 +182,9 @@ export default function PricingScreen() {
       if (initResponse.error) {
         throw initResponse.error;
       }
+
+      // Hide loader before presenting the sheet so users see the native UI
+      setIsProcessing(false);
 
       // Present payment sheet
       const presentResponse = await presentPaymentSheet();
@@ -226,9 +227,6 @@ export default function PricingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.backButton}>← Back</Text>
-          </TouchableOpacity>
           <Text style={styles.title}>Choose Your Plan</Text>
           <Text style={styles.subtitle}>
             Upgrade to unlock more space and smarter AI sorting.
@@ -290,6 +288,14 @@ export default function PricingScreen() {
           ))}
         </View>
       </ScrollView>
+      {isProcessing && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Preparing checkout…</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -592,5 +598,30 @@ const createStyles = (Colors: any) => StyleSheet.create({
   },
   selectButtonTextCurrent: {
     color: Colors.background,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingCard: {
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  loadingText: {
+    color: Colors.text,
+    fontWeight: '700',
   },
 });

@@ -69,7 +69,13 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const clerkKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+  const stripeMode = (process.env.EXPO_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
+  const stripePublishableKey =
+    stripeMode === 'live'
+      ? process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE || ''
+      : process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST ||
+        process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+        '';
 
   return (
     <ClerkProvider publishableKey={clerkKey || ''} tokenCache={tokenCache}>

@@ -1,13 +1,16 @@
 // app/(tabs)/add.tsx
-import * as Haptics from 'expo-haptics';
+import { useAuth } from '@clerk/clerk-expo';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { ArrowLeft, FolderPlus, Image as ImageIcon, Link2, Sparkles, Video, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
+    Keyboard,
     SafeAreaView,
     ScrollView,
     StatusBar,
@@ -16,16 +19,13 @@ import {
     TextInput,
     TouchableOpacity,
     View,
-    Keyboard,
 } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
+import { useFolders } from '../../hooks/useFolders';
+import { useContent } from '../../hooks/userContent';
 import { analyzeContentWithAI } from '../../services/ai';
 import { extractUrlMetadata } from '../../services/metadata';
 import { imageToBase64 } from '../../services/storage';
-import { useContent } from '../../hooks/userContent';
-import { useAuth } from '@clerk/clerk-expo';
-import { useRouter } from 'expo-router';
-import { useFolders } from '../../hooks/useFolders';
 
 const Colors = {
     primary: '#ec4899',
@@ -57,15 +57,15 @@ export default function AddScreen() {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [tags, setTags] = useState<string[]>([]);
-const [suggestedFolders, setSuggestedFolders] = useState<string[]>([]);
-const [aiCategory, setAiCategory] = useState<string | null>(null);
-const [metadataTitle, setMetadataTitle] = useState<string>('');
-const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-const [showNewFolderInput, setShowNewFolderInput] = useState(false);
-const [newFolderName, setNewFolderName] = useState('');
-const [availableFolders, setAvailableFolders] = useState<string[]>([]);
-const [aiLoading, setAiLoading] = useState(false);
-const [newTag, setNewTag] = useState('');
+    const [suggestedFolders, setSuggestedFolders] = useState<string[]>([]);
+    const [aiCategory, setAiCategory] = useState<string | null>(null);
+    const [metadataTitle, setMetadataTitle] = useState<string>('');
+    const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+    const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [availableFolders, setAvailableFolders] = useState<string[]>([]);
+    const [aiLoading, setAiLoading] = useState(false);
+    const [newTag, setNewTag] = useState('');
     const [clipboardPrefill, setClipboardPrefill] = useState(false);
 
     useEffect(() => {
@@ -304,10 +304,12 @@ const [newTag, setNewTag] = useState('');
             });
 
             Alert.alert('Success!', 'Your content has been saved', [
-                { text: 'OK', onPress: () => {
-                    resetForm();
-                    router.replace('/(tabs)');
-                } }
+                {
+                    text: 'OK', onPress: () => {
+                        resetForm();
+                        router.replace('/(tabs)');
+                    }
+                }
             ]);
         } catch (error) {
             console.error('Save failed', error);
@@ -574,8 +576,8 @@ const [newTag, setNewTag] = useState('');
                                                 ]}>
                                                     {folder}
                                                 </Text>
-                                                </TouchableOpacity>
-                                            ))}
+                                            </TouchableOpacity>
+                                        ))}
                                         <TouchableOpacity
                                             style={styles.newFolderButton}
                                             onPress={() => {
@@ -621,18 +623,7 @@ const [newTag, setNewTag] = useState('');
                                     </View>
                                 </View>
 
-                                {/* Save Button + AI Magic */}
-                                <TouchableOpacity
-                                    style={styles.saveButton}
-                                    onPress={handleSave}
-                                    disabled={isSaving}
-                                >
-                                    {isSaving ? (
-                                        <ActivityIndicator color="#ffffff" />
-                                    ) : (
-                                        <Text style={styles.saveButtonText}>Save Content</Text>
-                                    )}
-                                </TouchableOpacity>
+                                {/* AI Magic + Save */}
                                 <TouchableOpacity
                                     style={[styles.saveButton, styles.aiButton]}
                                     onPress={runAiMagic}
@@ -644,6 +635,18 @@ const [newTag, setNewTag] = useState('');
                                         <Text style={styles.saveButtonText}>AI Magic</Text>
                                     )}
                                 </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.saveButton}
+                                    onPress={handleSave}
+                                    disabled={isSaving}
+                                >
+                                    {isSaving ? (
+                                        <ActivityIndicator color="#ffffff" />
+                                    ) : (
+                                        <Text style={styles.saveButtonText}>Save Content</Text>
+                                    )}
+                                </TouchableOpacity>
+
                             </Animated.View>
                         )}
                     </Animated.View>

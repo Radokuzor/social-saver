@@ -1,6 +1,16 @@
 // hooks/useContent.ts
 import { useAuth } from '@clerk/clerk-expo';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import {
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    updateDoc,
+    where,
+} from 'firebase/firestore';
 import { deleteObject, ref } from 'firebase/storage';
 import { useCallback, useState } from 'react';
 import { analyzeContentWithAI } from '../services/ai';
@@ -16,12 +26,14 @@ interface SaveContentParams {
     title: string;
     description: string;
     tags: string[];
-    folderId?: string; // if known
-    folderName?: string; // fallback name to create/find
+    folderId?: string;
+    folderName?: string;
     aiSuggestedFolders?: string[];
     aiCategory?: string;
     thumbnail?: string;
 }
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function useContent() {
     const { userId } = useAuth();
@@ -37,62 +49,122 @@ export function useContent() {
                 throw new Error('User not authenticated');
             }
 
-            let metadata = {};
+            console.log('[content] save start', { type: contentData.type, userId });
+
+            let metadata: any = {};
             let mediaUrl = '';
             let thumbnail = contentData.thumbnail || '';
             let finalFolderId = contentData.folderId || null;
 
-            // Pick folder
+            // Pick folder with retry logic
             if (!finalFolderId) {
                 const nameToUse =
-                    contentData.folderName ||
-                    contentData.aiSuggestedFolders?.[0] ||
-                    contentData.aiCategory ||
+                    contentData.folderName?.trim() ||
+                    contentData.aiSuggestedFolders?.[0]?.trim() ||
+                    contentData.aiCategory?.trim() ||
                     'Unsorted';
-                finalFolderId = await getOrCreateFolder(userId, nameToUse);
+
+                let retries = 3;
+                while (retries > 0) {
+                    try {
+                        finalFolderId = await getOrCreateFolder(userId, nameToUse);
+                        break;
+                    } catch (err) {
+                        console.warn('[content] getOrCreateFolder failed, retrying', err);
+                        retries--;
+                        if (retries === 0) throw err;
+                        await delay(1000);
+                    }
+                }
             }
 
-            // Handle URL content
+            // If we still failed to assign a folder, enforce a default
+            if (!finalFolderId) {
+                console.warn('[content] No folderId resolved, forcing Unsorted');
+                finalFolderId = await getOrCreateFolder(userId, 'Unsorted');
+            }
+
+            // Handle URL content with timeout
             if (contentData.type === 'url' && contentData.url) {
-                const urlMetadata = await extractUrlMetadata(contentData.url);
-                metadata = urlMetadata;
-                thumbnail = urlMetadata.image || '';
+                try {
+                    const urlMetadata = await Promise.race([
+                        extractUrlMetadata(contentData.url),
+                        new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error('Metadata timeout')), 10000)
+                        ),
+                    ]);
+                    metadata = urlMetadata;
+                    thumbnail = urlMetadata.image || thumbnail;
+                } catch (metadataError) {
+                    console.warn('[content] Metadata extraction failed, continuing', metadataError);
+                    metadata = { url: contentData.url };
+                }
             }
 
-            // Handle media content (image/video)
+            // Handle media content with retry
             if ((contentData.type === 'image' || contentData.type === 'video') && contentData.mediaUri) {
-                mediaUrl = await uploadMedia(
-                    { uri: contentData.mediaUri, type: `${contentData.type}/jpeg` },
-                    userId
-                );
-                thumbnail = mediaUrl;
+                let uploadRetries = 3;
+                while (uploadRetries > 0) {
+                    try {
+                        mediaUrl = await uploadMedia(
+                            { uri: contentData.mediaUri, type: `${contentData.type}/jpeg` },
+                            userId
+                        );
+                        thumbnail = mediaUrl;
+                        break;
+                    } catch (uploadErr) {
+                        console.warn('[content] upload failed, retrying', uploadErr);
+                        uploadRetries--;
+                        if (uploadRetries === 0) throw uploadErr;
+                        await delay(2000);
+                    }
+                }
             }
 
-            // Save to Firestore
-            const docRef = await addDoc(collection(db, 'items'), {
-                userId,
-                type: contentData.type,
-                url: contentData.url || '',
-                mediaUrl,
-                title: contentData.title,
-                description: contentData.description,
-                thumbnail,
-                tags: contentData.tags,
-                folderId: finalFolderId || null,
-                aiSuggestedFolders: contentData.aiSuggestedFolders || [],
-                aiCategory: contentData.aiCategory || '',
-                metadata,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            });
+            // Save to Firestore with retry logic
+            let saveRetries = 3;
+            let docRef;
 
-            console.log('Content saved successfully with ID:', docRef.id);
+            while (saveRetries > 0) {
+                try {
+                    docRef = await addDoc(collection(db, 'items'), {
+                        userId,
+                        type: contentData.type,
+                        url: contentData.url || '',
+                        mediaUrl,
+                        title: contentData.title,
+                        description: contentData.description,
+                        thumbnail,
+                        tags: contentData.tags,
+                        folderId: finalFolderId || null,
+                        aiSuggestedFolders: contentData.aiSuggestedFolders || [],
+                        aiCategory: contentData.aiCategory || '',
+                        metadata,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    });
+                    break;
+                } catch (saveErr: any) {
+                    console.error('[content] save attempt failed', saveErr);
+                    saveRetries--;
+                    if (saveRetries === 0 || saveErr?.code === 'permission-denied') {
+                        throw saveErr;
+                    }
+                    await delay(1500);
+                }
+            }
+
+            if (!docRef) {
+                throw new Error('Failed to save content after retries');
+            }
+
+            console.log('[content] saved with ID:', docRef.id);
             return docRef.id;
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to save content';
-            console.error('Save content error:', errorMessage);
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to save content';
+            console.error('[content] Save content error:', err);
             setError(errorMessage);
-            throw err;
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -118,11 +190,31 @@ export function useContent() {
                     where('userId', '==', userId)
                 );
 
-            const querySnapshot = await getDocs(q);
-            const items = querySnapshot.docs.map(doc => {
-                const data = doc.data() as any;
+            let retries = 3;
+            let querySnapshot;
+
+            while (retries > 0) {
+                try {
+                    querySnapshot = await getDocs(q);
+                    break;
+                } catch (fetchErr: any) {
+                    console.error('[content] getDocs failed', fetchErr);
+                    retries--;
+                    if (retries === 0 || fetchErr?.code === 'permission-denied') {
+                        throw fetchErr;
+                    }
+                    await delay(1000);
+                }
+            }
+
+            if (!querySnapshot) {
+                throw new Error('Failed to fetch content');
+            }
+
+            const items = querySnapshot.docs.map(docSnap => {
+                const data = docSnap.data() as any;
                 return {
-                    id: doc.id,
+                    id: docSnap.id,
                     ...data,
                     createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
                     updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
@@ -133,12 +225,13 @@ export function useContent() {
                 return bDate - aDate;
             });
 
+            console.log('[content] fetched items', items.length);
             return items;
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch content';
-            console.error('Get content error:', errorMessage);
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to fetch content';
+            console.error('[content] Get content error:', err);
             setError(errorMessage);
-            throw err;
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -154,17 +247,31 @@ export function useContent() {
             }
 
             const itemRef = doc(db, 'items', itemId);
-            await updateDoc(itemRef, {
-                ...updates,
-                updatedAt: new Date(),
-            });
 
-            console.log('Content updated successfully');
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to update content';
-            console.error('Update content error:', errorMessage);
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    await updateDoc(itemRef, {
+                        ...updates,
+                        updatedAt: new Date(),
+                    });
+                    break;
+                } catch (updateErr: any) {
+                    console.error('[content] update failed', updateErr);
+                    retries--;
+                    if (retries === 0 || updateErr?.code === 'permission-denied') {
+                        throw updateErr;
+                    }
+                    await delay(1000);
+                }
+            }
+
+            console.log('[content] updated', itemId);
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to update content';
+            console.error('[content] Update content error:', err);
             setError(errorMessage);
-            throw err;
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -180,24 +287,43 @@ export function useContent() {
             }
 
             const itemRef = doc(db, 'items', itemId);
+
+            // Try to cleanup media first (non-blocking)
             try {
                 const snap = await getDoc(itemRef);
                 const data = snap.data() as any;
                 if (data?.mediaUrl) {
                     const mediaRef = ref(storage, data.mediaUrl);
-                    await deleteObject(mediaRef);
+                    await deleteObject(mediaRef).catch(err =>
+                        console.warn('[content] Media cleanup failed:', err)
+                    );
                 }
             } catch (cleanupErr) {
-                console.warn('Media cleanup skipped', cleanupErr);
+                console.warn('[content] Media cleanup skipped:', cleanupErr);
             }
-            await deleteDoc(itemRef);
 
-            console.log('Content deleted successfully');
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to delete content';
-            console.error('Delete content error:', errorMessage);
+            // Delete document with retry
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    await deleteDoc(itemRef);
+                    break;
+                } catch (deleteErr: any) {
+                    console.error('[content] delete failed', deleteErr);
+                    retries--;
+                    if (retries === 0 || deleteErr?.code === 'permission-denied') {
+                        throw deleteErr;
+                    }
+                    await delay(1000);
+                }
+            }
+
+            console.log('[content] deleted', itemId);
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to delete content';
+            console.error('[content] Delete content error:', err);
             setError(errorMessage);
-            throw err;
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -214,24 +340,19 @@ export function useContent() {
             let analysisResult;
 
             if (type === 'url') {
-                // First get metadata
                 const metadata = await extractUrlMetadata(urlOrUri);
-                // Then analyze with AI
                 analysisResult = await analyzeContentWithAI({
                     type: 'url',
                     metadata,
                     url: urlOrUri
                 });
             } else if (type === 'image') {
-                // Convert image to base64
                 const base64 = await imageToBase64(urlOrUri);
-                // Analyze with AI
                 analysisResult = await analyzeContentWithAI({
                     type: 'image',
                     imageBase64: base64
                 });
             } else {
-                // Video analysis
                 analysisResult = await analyzeContentWithAI({
                     type: 'video',
                     url: urlOrUri
@@ -239,51 +360,14 @@ export function useContent() {
             }
 
             return analysisResult;
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to analyze content';
-            console.error('Analyze content error:', errorMessage);
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to analyze content';
+            console.error('[content] Analyze content error:', err);
             setError(errorMessage);
-            throw err;
+            throw new Error(errorMessage);
         } finally {
             setLoading(false);
         }
-    }, [userId]);
-
-    const subscribeToContent = useCallback((onUpdate: (items: any[]) => void, folderId?: string) => {
-        if (!userId) return () => { };
-
-        const q = folderId
-            ? query(
-                collection(db, 'items'),
-                where('userId', '==', userId),
-                where('folderId', '==', folderId)
-            )
-            : query(
-                collection(db, 'items'),
-                where('userId', '==', userId)
-            );
-
-        const unsub = onSnapshot(q, (snapshot) => {
-            const mapped = snapshot.docs.map(doc => {
-                const data = doc.data() as any;
-                return {
-                    id: doc.id,
-                    ...data,
-                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
-                    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
-                };
-            }).sort((a, b) => {
-                const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-                const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-                return bDate - aDate;
-            });
-            onUpdate(mapped);
-        }, (err) => {
-            console.error('Subscribe content error:', err);
-            setError(err.message);
-        });
-
-        return unsub;
     }, [userId]);
 
     return {
@@ -292,7 +376,6 @@ export function useContent() {
         updateContent,
         deleteContent,
         analyzeContent,
-        subscribeToContent,
         loading,
         error,
     };

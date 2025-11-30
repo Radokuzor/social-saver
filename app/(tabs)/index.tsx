@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx
+// app/(tabs)/index.tsx - Enhanced with debugging
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
@@ -27,15 +27,15 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useContent } from '../../hooks/userContent';
 import { useTheme } from '../../contexts/ThemeProvider';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
 const CARD_GAP = 12;
 const CARD_WIDTH = (width - (HORIZONTAL_PADDING * 2) - CARD_GAP) / 2;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
 export default function HomeScreen() {
-  const { getContent, deleteContent, subscribeToContent } = useContent();
-  const { isSignedIn } = useAuth();
+  const { getContent, deleteContent } = useContent();
+  const { isSignedIn, userId } = useAuth();
   const { user } = useUser();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
@@ -45,34 +45,95 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const loadContent = useCallback(async () => {
-    if (!isSignedIn) return;
     try {
       setLoading(true);
-      console.log('[home] fetching content');
+      console.log('[home] 🚀 Starting content load...');
+      console.log('[home] Auth status:', { isSignedIn, userId });
+
+      setDebugInfo(`Loading... (Auth: ${isSignedIn ? 'Yes' : 'No'})`);
+
       const data = await getContent();
-      console.log('[home] fetched items', data?.length);
+      console.log('[home] ✅ Content loaded:', data?.length, 'items');
+
       setItems(data);
-    } catch (err) {
-      console.error('[home] Load items failed', err);
+      setDebugInfo(`Loaded ${data?.length || 0} items`);
+    } catch (err: any) {
+      console.error('[home] ❌ Load items failed:', err);
+      console.error('[home] Error details:', {
+        message: err?.message,
+        code: err?.code,
+        stack: err?.stack?.substring(0, 200),
+      });
+      setDebugInfo(`Error: ${err?.message || 'Unknown error'}`);
+
+      Alert.alert(
+        'Failed to Load Content',
+        `Error: ${err?.message || 'Unknown error'}\n\nCheck console for details.`,
+        [{ text: 'OK' }],
+      );
     } finally {
       setLoading(false);
     }
-  }, [isSignedIn, getContent]);
+  }, [isSignedIn, userId, getContent]);
 
   useEffect(() => {
-    if (!isSignedIn) return;
-    const unsub = subscribeToContent(setItems);
-    return () => unsub && unsub();
-  }, [isSignedIn, subscribeToContent]);
+    console.log('[home] 🎬 Component mounted');
+    console.log('[home] Initial auth state:', { isSignedIn, userId });
+  }, []);
+
+  useEffect(() => {
+    console.log('[home] 🔄 Auth state changed:', { isSignedIn, userId });
+    if (isSignedIn) {
+      loadContent();
+    } else {
+      setItems([]);
+      setDebugInfo('Not signed in');
+    }
+  }, [isSignedIn, userId, loadContent]);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[home] 👁️ Screen focused');
+      if (!isSignedIn) {
+        console.log('[home] User not signed in, skipping load');
+        setItems([]);
+        setDebugInfo('Not signed in');
+        return;
+      }
+      let mounted = true;
+      (async () => {
+        try {
+          console.log('[home] Loading on focus...');
+          const data = await getContent();
+          if (mounted) {
+            console.log('[home] Setting items on focus:', data?.length);
+            setItems(data);
+            setDebugInfo(`Focus load: ${data?.length || 0} items`);
+          }
+        } catch (err) {
+          console.error('[home] load on focus failed', err);
+          if (mounted) {
+            setDebugInfo(`Focus error: ${(err as any)?.message}`);
+          }
+        }
+      })();
+      return () => {
+        mounted = false;
+        console.log('[home] 👋 Screen unfocused');
+      };
+    }, [isSignedIn, getContent]),
+  );
 
   const onRefresh = useCallback(async () => {
     if (!isSignedIn) return;
     try {
       setRefreshing(true);
+      setDebugInfo('Refreshing...');
       await loadContent();
     } finally {
       setRefreshing(false);
@@ -81,11 +142,10 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Reset search UI each time the tab gains focus
       setShowSearch(false);
       setSearch('');
       return () => {};
-    }, [])
+    }, []),
   );
 
   const filteredItems = React.useMemo(() => {
@@ -111,37 +171,32 @@ export default function HomeScreen() {
           onPress: async () => {
             try {
               await deleteContent(id);
-              setItems(prev => prev.filter(i => i.id !== id));
+              setItems((prev) => prev.filter((i) => i.id !== id));
             } catch (err) {
               console.error('Delete failed', err);
               Alert.alert('Delete failed', 'Could not delete this item. Please try again.');
             }
-          }
-        }
-      ]
+          },
+        },
+      ],
     );
   };
 
-  // Calculate which items are visible based on scroll position
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const scrollY = event.nativeEvent.contentOffset.y;
     const viewportHeight = event.nativeEvent.layoutMeasurement.height;
 
-    // Calculate visible range with some buffer (play videos slightly before they're fully visible)
-    const bufferZone = CARD_HEIGHT; // Start loading one card height before visible
+    const bufferZone = CARD_HEIGHT;
     const visibleStart = scrollY - bufferZone;
     const visibleEnd = scrollY + viewportHeight + bufferZone;
 
     const newVisibleIndices = new Set<number>();
 
-    // Calculate which items are in view
-    // Assuming 2 columns grid
     items.forEach((item, index) => {
       const row = Math.floor(index / 2);
       const itemY = row * (CARD_HEIGHT + CARD_GAP);
       const itemEndY = itemY + CARD_HEIGHT;
 
-      // Check if item is within visible range
       if (itemEndY >= visibleStart && itemY <= visibleEnd) {
         newVisibleIndices.add(index);
       }
@@ -154,22 +209,33 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
-        <View style={styles.header}>
-          <View>
-          <Text style={[styles.greeting, { color: colors.text }]}>Hello, {user?.firstName || 'there'} ✨</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Your saved content</Text>
+      <View style={styles.header}>
+        <View>
+          <Text style={[styles.greeting, { color: colors.text }]}>
+            Hello, {user?.firstName || 'there'} ✨
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Your saved content
+          </Text>
+          {__DEV__ && debugInfo && (
+            <Text style={[styles.subtitle, { color: colors.primary, fontSize: 11 }]}>
+              Debug: {debugInfo}
+            </Text>
+          )}
         </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
-            style={styles.iconButton}
+            style={[styles.iconButton, styles.searchButton]}
             onPress={() => {
               setShowSearch((prev) => !prev);
               if (showSearch) setSearch('');
             }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Search size={24} color={colors.text} />
+            <View pointerEvents="none">
+              <Search size={24} color={colors.text} />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -191,14 +257,13 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Content Grid */}
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={16} // Update every 16ms for smooth tracking
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -209,7 +274,12 @@ export default function HomeScreen() {
         }
       >
         {loading ? (
-          <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
+          <View style={{ marginTop: 40, alignItems: 'center' }}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[styles.subtitle, { marginTop: 12, color: colors.textSecondary }]}>
+              Loading your content...
+            </Text>
+          </View>
         ) : filteredItems.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
@@ -218,6 +288,21 @@ export default function HomeScreen() {
             <Text style={styles.emptyStateSubtext}>
               {search.trim() ? 'Try a different keyword' : 'Start saving your favorite content!'}
             </Text>
+            {__DEV__ && (
+              <TouchableOpacity
+                onPress={loadContent}
+                style={{
+                  marginTop: 20,
+                  padding: 12,
+                  backgroundColor: colors.primary,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>
+                  Reload (Debug)
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={styles.grid}>
@@ -268,7 +353,6 @@ function ContentCard({
   const hasVideo = isVideo && !!videoUri && !videoError;
   const hasImage = !isVideo && !!imageUri;
 
-  // Handle video play/pause based on visibility
   useEffect(() => {
     if (!hasVideo || !videoRef.current) return;
 
@@ -292,6 +376,7 @@ function ContentCard({
       setIsLoaded(true);
     }
   };
+
   const handleVideoError = (error: any) => {
     console.log('Video load error:', error);
     setVideoError(true);
@@ -318,7 +403,7 @@ function ContentCard({
           resizeMode={ResizeMode.COVER}
           isLooping
           isMuted
-          shouldPlay={false} // Control manually via useEffect
+          shouldPlay={false}
           onPlaybackStatusUpdate={handleVideoLoad}
           onError={handleVideoError}
           usePoster
@@ -382,13 +467,14 @@ const createStyles = (palette: any) => StyleSheet.create({
     gap: 8,
   },
   iconButton: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: 12,
     backgroundColor: palette.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  searchButton: {},
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',

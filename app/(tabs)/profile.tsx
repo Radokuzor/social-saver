@@ -15,7 +15,9 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     SafeAreaView,
     ScrollView,
     StatusBar,
@@ -60,10 +62,14 @@ export default function ProfileScreen() {
     const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     const [handleInput, setHandleInput] = useState('');
     const [phoneInput, setPhoneInput] = useState('');
+    const [firstNameInput, setFirstNameInput] = useState('');
+    const [lastNameInput, setLastNameInput] = useState('');
     const [handleError, setHandleError] = useState<string | null>(null);
     const [savingProfile, setSavingProfile] = useState(false);
     const [profileHandle, setProfileHandle] = useState<string | null>(null);
     const [profilePhone, setProfilePhone] = useState<string | null>(null);
+    const [profileFirstName, setProfileFirstName] = useState<string | null>(null);
+    const [profileLastName, setProfileLastName] = useState<string | null>(null);
     const [showSupportModal, setShowSupportModal] = useState(false);
     const ensureCountryCode = (raw: string) => {
         const trimmed = raw.trim();
@@ -99,15 +105,19 @@ export default function ProfileScreen() {
             setTagCount(tags.size);
 
             // Load profile info
-            const docRef = doc(db, 'profiles', user?.id || '');
+            const docRef = doc(db, 'users', user?.id || '');
             const snap = await getDoc(docRef);
             if (snap.exists()) {
                 const data = snap.data() as any;
                 setProfileHandle(data.handle || null);
                 setProfilePhone(data.phoneNumber || null);
+                setProfileFirstName(data.firstName || null);
+                setProfileLastName(data.lastName || null);
             } else {
                 setProfileHandle(null);
                 setProfilePhone(null);
+                setProfileFirstName(null);
+                setProfileLastName(null);
             }
         } catch (err) {
             console.error('Load stats failed', err);
@@ -181,7 +191,7 @@ export default function ProfileScreen() {
                     <View style={styles.userInfo}>
                         <Text style={styles.userName}>
                             {isSignedIn
-                                ? `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Your name'
+                                ? `${(profileFirstName || user?.firstName || '')} ${(profileLastName || user?.lastName || '')}`.trim() || 'Your name'
                                 : 'Guest User'}
                         </Text>
                         {profileHandle ? (
@@ -202,6 +212,8 @@ export default function ProfileScreen() {
                                 setHandleInput(profileHandle ? `@${profileHandle}` : '');
                                 setPhoneInput(profilePhone || '');
                                 setHandleError(null);
+                                setFirstNameInput(profileFirstName || user?.firstName || '');
+                                setLastNameInput(profileLastName || user?.lastName || '');
                                 setShowProfileModal(true);
                             }}
                         >
@@ -377,92 +389,143 @@ export default function ProfileScreen() {
                 animationType="fade"
                 onRequestClose={() => setShowProfileModal(false)}
             >
-                <View style={styles.modalBackdrop}>
-                    <View style={[styles.modalCard, { backgroundColor: colors.background }]}>
-                        <Text style={styles.modalTitle}>Edit profile</Text>
-                        <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
-                            Set a unique @handle and optional phone number.
-                        </Text>
-
-                        <Text style={styles.fieldLabel}>@ Handle</Text>
-                        <TextInput
-                            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
-                            placeholder="@yourhandle"
-                            placeholderTextColor={colors.textSecondary}
-                            value={handleInput}
-                            onChangeText={(t) => {
-                                setHandleInput(t);
-                                setHandleError(null);
-                            }}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                        {handleError ? <Text style={styles.errorText}>{handleError}</Text> : null}
-
-                        <Text style={styles.fieldLabel}>Phone number</Text>
-                            <TextInput
-                            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
-                            placeholder="+1 555 555 5555"
-                            placeholderTextColor={colors.textSecondary}
-                            value={phoneInput}
-                            onChangeText={setPhoneInput}
-                            keyboardType="phone-pad"
-                        />
-
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity
-                                style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}
-                                onPress={() => setShowProfileModal(false)}
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <TouchableOpacity
+                        style={styles.modalBackdrop}
+                        activeOpacity={1}
+                        onPress={() => setShowProfileModal(false)}
+                    >
+                        <TouchableOpacity
+                            activeOpacity={1}
+                            onPress={(e) => e.stopPropagation()}
+                            style={{ width: '100%', maxHeight: '85%' }}
+                        >
+                            <ScrollView
+                                style={[styles.modalCard, { backgroundColor: colors.background }]}
+                                contentContainerStyle={{ paddingBottom: 20 }}
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
                             >
-                                <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalButton, { backgroundColor: colors.primary }]}
-                                onPress={async () => {
-                                    if (!user?.id) return;
-                                    const trimmed = handleInput.trim().replace(/^@/, '');
-                                    if (!trimmed) {
-                                        setHandleError('Handle is required');
-                                        return;
-                                    }
-                                    const canonical = trimmed.toLowerCase();
-                                    setSavingProfile(true);
-                                    try {
-                                        // Ensure handle is unique
-                                        const handlesRef = collection(db, 'profiles');
+                                <Text style={styles.modalTitle}>Edit profile</Text>
+                                <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                                    Set a name, unique @handle, and optional phone number.
+                                </Text>
+
+                                <Text style={styles.fieldLabel}>First name</Text>
+                                <TextInput
+                                    style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                                    placeholder="First name"
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={firstNameInput}
+                                    onChangeText={setFirstNameInput}
+                                    autoCapitalize="words"
+                                />
+
+                                <Text style={styles.fieldLabel}>Last name</Text>
+                                <TextInput
+                                    style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                                    placeholder="Last name"
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={lastNameInput}
+                                    onChangeText={setLastNameInput}
+                                    autoCapitalize="words"
+                                />
+
+                                <Text style={styles.fieldLabel}>@ Handle</Text>
+                                <TextInput
+                                    style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                                    placeholder="@yourhandle"
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={handleInput}
+                                    onChangeText={(t) => {
+                                        setHandleInput(t);
+                                        setHandleError(null);
+                                    }}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                />
+                                {handleError ? <Text style={styles.errorText}>{handleError}</Text> : null}
+
+                                <Text style={styles.fieldLabel}>Phone number</Text>
+                                <TextInput
+                                    style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+                                    placeholder="+1 555 555 5555"
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={phoneInput}
+                                    onChangeText={setPhoneInput}
+                                    keyboardType="phone-pad"
+                                />
+
+                                <View style={styles.modalActions}>
+                                    <TouchableOpacity
+                                        style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}
+                                        onPress={() => setShowProfileModal(false)}
+                                    >
+                                        <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                                        onPress={async () => {
+                                            if (!user?.id) return;
+                                            const trimmed = handleInput.trim().replace(/^@/, '');
+                                            if (!trimmed) {
+                                                setHandleError('Handle is required');
+                                                return;
+                                            }
+                                            const canonical = trimmed.toLowerCase();
+                                            setSavingProfile(true);
+                                            try {
+                                                // Ensure handle is unique
+                                        const handlesRef = collection(db, 'users');
                                         const q = query(handlesRef, where('handleLower', '==', canonical));
                                         const snap = await getDocs(q);
                                         const taken = snap.docs.some(d => d.id !== user.id);
-                                        if (taken) {
-                                            setHandleError('Handle already taken. Choose another.');
-                                            setSavingProfile(false);
-                                            return;
-                                        }
-                                        const normalizedPhone = phoneInput ? ensureCountryCode(phoneInput) : '';
-                                        await setDoc(doc(db, 'profiles', user.id), {
-                                            userId: user.id,
-                                            handle: trimmed,
-                                            handleLower: canonical,
-                                            phoneNumber: normalizedPhone,
-                                            updatedAt: new Date(),
-                                        }, { merge: true });
-                                        setProfileHandle(trimmed);
-                                        setProfilePhone(normalizedPhone || null);
-                                        setShowProfileModal(false);
-                                    } catch (err) {
-                                        console.error('Save profile failed', err);
-                                        setHandleError('Could not save. Please try again.');
-                                    } finally {
-                                        setSavingProfile(false);
-                                    }
-                                }}
-                                disabled={savingProfile}
-                            >
-                                <Text style={[styles.modalButtonText, { color: '#fff' }]}>{savingProfile ? 'Saving...' : 'Save'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
+                                                if (taken) {
+                                                    setHandleError('Handle already taken. Choose another.');
+                                                    setSavingProfile(false);
+                                                    return;
+                                                }
+                                                const normalizedPhone = phoneInput ? ensureCountryCode(phoneInput) : '';
+                                            await setDoc(doc(db, 'users', user.id), {
+                                                userId: user.id,
+                                                handle: trimmed,
+                                                handleLower: canonical,
+                                                phoneNumber: normalizedPhone,
+                                                firstName: firstNameInput || '',
+                                                lastName: lastNameInput || '',
+                                                updatedAt: new Date(),
+                                            }, { merge: true });
+                                            setProfileHandle(trimmed);
+                                            setProfilePhone(normalizedPhone || null);
+                                            setProfileFirstName(firstNameInput || null);
+                                            setProfileLastName(lastNameInput || null);
+                                            // Update Clerk user metadata for display (optional)
+                                            if (user) {
+                                                await user.update?.({
+                                                    firstName: firstNameInput || undefined,
+                                                    lastName: lastNameInput || undefined,
+                                                    } as any);
+                                                }
+                                                setShowProfileModal(false);
+                                            } catch (err) {
+                                                console.error('Save profile failed', err);
+                                                setHandleError('Could not save. Please try again.');
+                                            } finally {
+                                                setSavingProfile(false);
+                                            }
+                                        }}
+                                        disabled={savingProfile}
+                                    >
+                                        <Text style={[styles.modalButtonText, { color: '#fff' }]}>{savingProfile ? 'Saving...' : 'Save'}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        </TouchableOpacity>
+                    </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Privacy & Security modal */}

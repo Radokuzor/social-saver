@@ -6,6 +6,7 @@ import { Folder, MoreVertical, Plus } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     SafeAreaView,
     ScrollView,
