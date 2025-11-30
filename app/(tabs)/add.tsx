@@ -188,11 +188,13 @@ export default function AddScreen() {
                 analysisResult = await analyzeContentWithAI({
                     type: 'image',
                     imageBase64: base64,
+                    preferredFolders: uniqueAvailableFolders,
                 });
             } else {
                 analysisResult = await analyzeContentWithAI({
                     type: 'video',
                     url: mediaUri,
+                    preferredFolders: uniqueAvailableFolders,
                 });
             }
 
@@ -234,17 +236,20 @@ export default function AddScreen() {
                 analysisResult = await analyzeContentWithAI({
                     type: 'url',
                     metadata,
+                    preferredFolders: uniqueAvailableFolders,
                 });
             } else if (contentType === 'image') {
                 const base64 = await imageToBase64(mediaUri);
                 analysisResult = await analyzeContentWithAI({
                     type: 'image',
                     imageBase64: base64,
+                    preferredFolders: uniqueAvailableFolders,
                 });
             } else {
                 analysisResult = await analyzeContentWithAI({
                     type: 'video',
                     url: mediaUri || url,
+                    preferredFolders: uniqueAvailableFolders,
                 });
             }
 
@@ -536,7 +541,43 @@ export default function AddScreen() {
                                 {/* Folder Selection */}
                                 <View style={styles.formGroup}>
                                     <Text style={styles.label}>Save to Folder</Text>
-                                    <View style={styles.foldersContainer}>
+
+                                    {/* Suggested row */}
+                                    {uniqueSuggestedFolders.length > 0 && (
+                                        <View style={styles.folderRow}>
+                                            <Text style={styles.folderRowLabel}>Suggested</Text>
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                contentContainerStyle={{ gap: 8 }}
+                                            >
+                                                {uniqueSuggestedFolders.map((folder) => (
+                                                    <TouchableOpacity
+                                                        key={`suggested-${folder}`}
+                                                        style={[
+                                                            styles.folderChip,
+                                                            selectedFolder === folder && styles.folderChipSelected
+                                                        ]}
+                                                        onPress={() => {
+                                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                            setSelectedFolder(folder);
+                                                        }}
+                                                    >
+                                                        <Text style={[
+                                                            styles.folderChipText,
+                                                            selectedFolder === folder && styles.folderChipTextSelected
+                                                        ]}>
+                                                            {folder}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </ScrollView>
+                                        </View>
+                                    )}
+
+                                    {/* Available row */}
+                                    <View style={styles.folderRow}>
+                                        <Text style={styles.folderRowLabel}>Your folders</Text>
                                         <ScrollView
                                             horizontal
                                             showsHorizontalScrollIndicator={false}
@@ -562,70 +603,52 @@ export default function AddScreen() {
                                                     </Text>
                                                 </TouchableOpacity>
                                             ))}
-                                        </ScrollView>
-                                        {uniqueSuggestedFolders.map((folder) => (
+
                                             <TouchableOpacity
-                                                key={`suggested-${folder}`}
-                                                style={[
-                                                    styles.folderChip,
-                                                    selectedFolder === folder && styles.folderChipSelected
-                                                ]}
+                                                style={styles.newFolderButton}
                                                 onPress={() => {
                                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                    setSelectedFolder(folder);
+                                                    setShowNewFolderInput(true);
                                                 }}
                                             >
-                                                <Text style={[
-                                                    styles.folderChipText,
-                                                    selectedFolder === folder && styles.folderChipTextSelected
-                                                ]}>
-                                                    {folder}
-                                                </Text>
+                                                <FolderPlus size={16} color={Colors.primary} />
+                                                <Text style={styles.newFolderText}>New Folder</Text>
                                             </TouchableOpacity>
-                                        ))}
-                                        <TouchableOpacity
-                                            style={styles.newFolderButton}
-                                            onPress={() => {
-                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                setShowNewFolderInput(true);
-                                            }}
-                                        >
-                                            <FolderPlus size={16} color={Colors.primary} />
-                                            <Text style={styles.newFolderText}>New Folder</Text>
-                                        </TouchableOpacity>
-                                        {showNewFolderInput && (
-                                            <View style={styles.newFolderInput}>
-                                                <TextInput
-                                                    style={styles.newFolderTextInput}
-                                                    placeholder="Folder name"
-                                                    placeholderTextColor={Colors.textSecondary}
-                                                    value={newFolderName}
-                                                    onChangeText={setNewFolderName}
-                                                    onSubmitEditing={() => {
-                                                        if (!newFolderName.trim()) return;
-                                                        const name = newFolderName.trim();
-                                                        setSuggestedFolders([name, ...suggestedFolders]);
-                                                        setSelectedFolder(name);
-                                                        setShowNewFolderInput(false);
-                                                        setNewFolderName('');
-                                                    }}
-                                                />
-                                                <TouchableOpacity
-                                                    style={styles.addFolderButton}
-                                                    onPress={() => {
-                                                        if (!newFolderName.trim()) return;
-                                                        const name = newFolderName.trim();
-                                                        setSuggestedFolders([name, ...suggestedFolders]);
-                                                        setSelectedFolder(name);
-                                                        setShowNewFolderInput(false);
-                                                        setNewFolderName('');
-                                                    }}
-                                                >
-                                                    <Text style={styles.addFolderButtonText}>Add</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        )}
+                                        </ScrollView>
                                     </View>
+
+                                    {showNewFolderInput && (
+                                        <View style={styles.newFolderInput}>
+                                            <TextInput
+                                                style={styles.newFolderTextInput}
+                                                placeholder="Folder name"
+                                                placeholderTextColor={Colors.textSecondary}
+                                                value={newFolderName}
+                                                onChangeText={setNewFolderName}
+                                                onSubmitEditing={() => {
+                                                    if (!newFolderName.trim()) return;
+                                                    const name = newFolderName.trim();
+                                                    setSuggestedFolders([name, ...suggestedFolders]);
+                                                    setSelectedFolder(name);
+                                                    setShowNewFolderInput(false);
+                                                    setNewFolderName('');
+                                                }}
+                                            />
+                                            <TouchableOpacity
+                                                style={styles.addFolderButton}
+                                                onPress={() => {
+                                                    if (!newFolderName.trim()) return;
+                                                    const name = newFolderName.trim();
+                                                    setSuggestedFolders([name, ...suggestedFolders]);
+                                                    setSelectedFolder(name);
+                                                    setShowNewFolderInput(false);
+                                                    setNewFolderName('');
+                                                }}
+                                            >
+                                                <Text style={styles.addFolderButtonText}>Add</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
                                 </View>
 
                                 {/* AI Magic + Save */}
@@ -813,9 +836,19 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     foldersContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
         gap: 10,
+    },
+    folderRow: {
+        marginTop: 8,
+        gap: 6,
+    },
+    folderRowLabel: {
+        fontSize: 12,
+        color: Colors.textSecondary,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginLeft: 2,
     },
     folderChip: {
         backgroundColor: Colors.surface,

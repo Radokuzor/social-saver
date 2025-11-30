@@ -46,6 +46,7 @@ export async function analyzeContentWithAI(
         url?: string;
         metadata?: any;
         imageBase64?: string;
+        preferredFolders?: string[];
     }
 ): Promise<AIAnalysisResult> {
     // Call your server to do the OpenAI work
@@ -62,7 +63,9 @@ export async function analyzeContentWithAI(
                 url: content.url,
                 metadata: content.metadata,
                 imageBase64: content.imageBase64,
-                preferredFolders: PREFERRED_FOLDERS,
+                preferredFolders: content.preferredFolders?.length
+                    ? content.preferredFolders
+                    : PREFERRED_FOLDERS,
             },
             { timeout: 20000 }
         );
