@@ -1,6 +1,6 @@
 // hooks/useFolders.ts
 import { useAuth } from '@clerk/clerk-expo';
-import { addDoc, collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { useCallback, useState } from 'react';
 import { db } from '../services/firebase';
 
@@ -41,9 +41,12 @@ export function useFolders() {
         try {
             setLoading(true);
             setError(null);
+            const trimmed = name.trim();
+            const lowered = trimmed.toLowerCase();
             const docRef = await addDoc(collection(db, 'folders'), {
                 userId,
-                name,
+                name: trimmed,
+                nameLower: lowered,
                 color: '#fdf2f8',
                 icon: 'folder',
                 itemCount: 0,
@@ -54,6 +57,21 @@ export function useFolders() {
             return docRef.id;
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to create folder';
+            setError(message);
+            throw err;
+        } finally {
+            setLoading(false);
+        }
+    }, [userId]);
+
+    const deleteFolder = useCallback(async (folderId: string) => {
+        if (!userId) throw new Error('User not authenticated');
+        try {
+            setLoading(true);
+            setError(null);
+            await deleteDoc(doc(db, 'folders', folderId));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to delete folder';
             setError(message);
             throw err;
         } finally {
@@ -78,5 +96,5 @@ export function useFolders() {
         return unsub;
     }, [userId]);
 
-    return { getFolders, createFolder, subscribeToFolders, loading, error };
+    return { getFolders, createFolder, deleteFolder, subscribeToFolders, loading, error };
 }

@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Folder, MoreVertical, Plus } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -49,18 +49,19 @@ const folderColors = [
 ];
 
 export default function CollectionsScreen() {
-    const { getFolders, createFolder, subscribeToFolders } = useFolders();
-    const { getContent } = useContent();
-    const { isSignedIn, userId } = useAuth();
-    const router = useRouter();
-    const [folders, setFolders] = useState<any[]>([]);
+  const { getFolders, createFolder, deleteFolder, subscribeToFolders } = useFolders();
+  const { getContent } = useContent();
+  const { isSignedIn, userId } = useAuth();
+  const router = useRouter();
+  const [folders, setFolders] = useState<any[]>([]);
     const [folderDocs, setFolderDocs] = useState<any[]>([]);
     const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
     const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
-    const [creating, setCreating] = useState(false);
-    const [newFolder, setNewFolder] = useState('');
-    const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newFolder, setNewFolder] = useState('');
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const longPressingRef = useRef(false);
 
     const loadFolders = useCallback(async () => {
         if (!isSignedIn) return;
@@ -230,7 +231,23 @@ export default function CollectionsScreen() {
                                 <FolderCard
                                     folder={folder}
                                     index={index}
-                                    onPress={() => router.push({ pathname: '/folder/[id]', params: { id: folder.id, name: folder.name } })}
+                                    onPress={() => {
+                                        if (longPressingRef.current) return;
+                                        router.push({
+                                            pathname: '/folder/[id]',
+                                            params: { id: folder.id, name: folder.name }
+                                        });
+                                    }}
+                                    onLongPress={async (id) => {
+                                        longPressingRef.current = true;
+                                        try {
+                                            await deleteFolder(id);
+                                        } catch (err) {
+                                            Alert.alert('Delete failed', 'Could not delete this folder. Please try again.');
+                                        } finally {
+                                            setTimeout(() => { longPressingRef.current = false; }, 500);
+                                        }
+                                    }}
                                 />
                             </Animated.View>
                         ))}
@@ -241,13 +258,48 @@ export default function CollectionsScreen() {
     );
 }
 
-function FolderCard({ folder, index, onPress }: { folder: any; index: number; onPress: () => void }) {
-    // Use folder.colorIndex if it exists, otherwise generate one based on folder id/index
+function FolderCard({
+    folder,
+    index,
+    onPress,
+    onLongPress,
+}: {
+    folder: any;
+    index: number;
+    onPress: () => void;
+    onLongPress?: (id: string, name: string) => void;
+}) {
     const colorIndex = folder.colorIndex !== undefined
         ? folder.colorIndex
         : index % folderColors.length;
 
     const colors = folderColors[colorIndex];
+
+    const handleLongPress = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        Alert.alert(
+            'Folder Options',
+            `"${folder.name}"`,
+            [
+                {
+                    text: 'Edit',
+                    onPress: () => {
+                        // TODO: Add edit functionality
+                        console.log('Edit folder:', folder.id);
+                    },
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => onLongPress?.(folder.id, folder.name),
+                },
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+            ]
+        );
+    };
 
     return (
         <TouchableOpacity
@@ -257,6 +309,8 @@ function FolderCard({ folder, index, onPress }: { folder: any; index: number; on
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onPress();
             }}
+            onLongPress={handleLongPress}
+            delayLongPress={500}
         >
             {/* Folder Icon */}
             <View style={styles.cardHeader}>
@@ -265,8 +319,10 @@ function FolderCard({ folder, index, onPress }: { folder: any; index: number; on
                 </View>
                 <TouchableOpacity
                     style={styles.moreButton}
-                    onPress={() => {
+                    onPress={(e) => {
+                        e.stopPropagation?.();
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        handleLongPress();
                     }}
                 >
                     <MoreVertical size={20} color={Colors.textSecondary} />

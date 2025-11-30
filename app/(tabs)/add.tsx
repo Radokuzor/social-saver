@@ -26,6 +26,7 @@ import { useContent } from '../../hooks/userContent';
 import { analyzeContentWithAI } from '../../services/ai';
 import { extractUrlMetadata } from '../../services/metadata';
 import { imageToBase64 } from '../../services/storage';
+import { checkAndIncrementAiUsage, fetchUserProfile } from '../../services/userProfile';
 
 const Colors = {
     primary: '#ec4899',
@@ -42,7 +43,7 @@ const Colors = {
 type ContentType = 'url' | 'image' | 'video' | null;
 
 export default function AddScreen() {
-    const { isSignedIn } = useAuth();
+    const { isSignedIn, userId } = useAuth();
     const router = useRouter();
     const { saveContent } = useContent();
     const { getFolders } = useFolders();
@@ -172,6 +173,18 @@ export default function AddScreen() {
             setIsAnalyzing(true);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+            // AI usage limit check for signed-in users
+            if (isSignedIn) {
+                try {
+                    const profile = await fetchUserProfile(userId || '');
+                    await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
+                } catch (limitErr: any) {
+                    setIsAnalyzing(false);
+                    Alert.alert('AI limit reached', limitErr?.message || 'Upgrade your plan to use AI.');
+                    return;
+                }
+            }
+
             let analysisResult;
 
             if (contentType === 'url') {
@@ -229,6 +242,16 @@ export default function AddScreen() {
                 return;
             }
             setAiLoading(true);
+            if (isSignedIn) {
+                try {
+                    const profile = await fetchUserProfile(userId || '');
+                    await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
+                } catch (limitErr: any) {
+                    setAiLoading(false);
+                    Alert.alert('AI limit reached', limitErr?.message || 'Upgrade your plan to use AI.');
+                    return;
+                }
+            }
             let analysisResult;
 
             if (contentType === 'url') {

@@ -18,6 +18,7 @@ import { db, storage } from '../services/firebase';
 import { getOrCreateFolder } from '../services/folders';
 import { extractUrlMetadata } from '../services/metadata';
 import { imageToBase64, uploadMedia } from '../services/storage';
+import { fetchUserProfile, getPlanLimits } from '../services/userProfile';
 
 interface SaveContentParams {
     type: 'url' | 'image' | 'video';
@@ -50,6 +51,32 @@ export function useContent() {
             }
 
             console.log('[content] save start', { type: contentData.type, userId });
+
+            // Determine plan and limits
+            const profile = await fetchUserProfile(userId);
+            const planId = profile?.subscription?.planId || 'free';
+            const limits = getPlanLimits(planId);
+
+            // Count existing items for limits
+            const allItemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', userId)));
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+            const counts = allItemsSnap.docs.reduce((acc, docSnap) => {
+                const data = docSnap.data() as any;
+                const created = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt;
+                if (created && created >= startOfDay) acc.day += 1;
+                if (created && created >= startOfMonth) acc.month += 1;
+                return acc;
+            }, { day: 0, month: 0 });
+
+            if (limits.dailySaves && isFinite(limits.dailySaves) && counts.day >= limits.dailySaves) {
+                throw new Error(`Daily save limit reached (${limits.dailySaves}). Upgrade to save more today.`);
+            }
+            if (limits.monthlySaves && isFinite(limits.monthlySaves) && counts.month >= limits.monthlySaves) {
+                throw new Error(`Monthly save limit reached (${limits.monthlySaves}). Upgrade to save more this month.`);
+            }
 
             let metadata: any = {};
             let mediaUrl = '';
