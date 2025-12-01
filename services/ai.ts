@@ -33,12 +33,9 @@ const PREFERRED_FOLDERS = [
 
 const stripeMode = (process.env.EXPO_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
 const AI_SERVER_URL =
-    (stripeMode === 'live'
-        ? process.env.EXPO_PUBLIC_AI_SERVER_URL_LIVE
-        : process.env.EXPO_PUBLIC_AI_SERVER_URL_TEST || process.env.EXPO_PUBLIC_AI_SERVER_URL) ||
-    (stripeMode === 'live'
-        ? process.env.EXPO_PUBLIC_STRIPE_SERVER_URL_LIVE
-        : process.env.EXPO_PUBLIC_STRIPE_SERVER_URL_TEST || process.env.EXPO_PUBLIC_STRIPE_SERVER_URL);
+  stripeMode === 'live'
+    ? process.env.EXPO_PUBLIC_AI_SERVER_URL_LIVE
+    : process.env.EXPO_PUBLIC_AI_SERVER_URL_TEST;
 
 export async function analyzeContentWithAI(
     content: {

@@ -15,9 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.contentarchive"
+      "bundleIdentifier": "com.fourthwatchtech.socialSaver"
     },
     "android": {
+      "package": "com.fourthwatchtech.socialsaver",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#fdf2f8"

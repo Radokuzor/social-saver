@@ -1,7 +1,5 @@
-import { useAuth, useOAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
-import * as AuthSession from 'expo-auth-session';
+import { useAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,18 +17,13 @@ import {
   View,
 } from 'react-native';
 
-WebBrowser.maybeCompleteAuthSession();
-
 export default function SignInScreen() {
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { isLoaded: signInLoaded, signIn, setActive: setActiveSignIn } = useSignIn();
   const { isLoaded: signUpLoaded, signUp, setActive: setActiveSignUp } = useSignUp();
-  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' });
-  const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [emailLoading, setEmailLoading] = useState(false);
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
@@ -41,33 +34,12 @@ export default function SignInScreen() {
     }
   }, [isSignedIn, router]);
 
-  const handleGoogle = async () => {
-    try {
-      setLoadingGoogle(true);
-      const redirectUrl = AuthSession.makeRedirectUri();
-      const { createdSessionId, signIn, signUp, setActive } = await startOAuthFlow({ redirectUrl });
-
-      const sessionId = createdSessionId || signIn?.createdSessionId || signUp?.createdSessionId;
-      if (sessionId && setActive) {
-        await setActive({ session: sessionId });
-        router.replace('/(tabs)');
-        return;
-      }
-
-      Alert.alert('Sign-in issue', 'Authentication completed but no session was created. Please try again.');
-    } catch (err: any) {
-      const message = err?.errors?.[0]?.longMessage || err?.message || 'Google sign-in failed.';
-      Alert.alert('Sign-in failed', message);
-    } finally {
-      setLoadingGoogle(false);
-    }
-  };
-
   const handleEmailAuth = async () => {
     if (!signInLoaded || !signUpLoaded || !email || !password) return;
     try {
       setEmailLoading(true);
-      if (authMode === 'signin') {
+      // Try sign-in first
+      try {
         const res = await signIn?.create({
           identifier: email.trim(),
           password,
@@ -77,22 +49,37 @@ export default function SignInScreen() {
           router.replace('/(tabs)');
           return;
         }
-        throw new Error('Additional verification required.');
-      } else {
-        const res = await signUp?.create({
-          emailAddress: email.trim(),
-          password,
-        });
-        if (res?.status === 'complete') {
-          await setActiveSignUp?.({ session: res.createdSessionId });
-          router.replace('/(tabs)');
-          return;
+        // If password first factor is needed, attempt it
+        if (res?.status === 'needs_first_factor') {
+          const attempt = await signIn?.attemptFirstFactor({
+            strategy: 'password',
+            password,
+          });
+          if (attempt?.status === 'complete') {
+            await setActiveSignIn?.({ session: attempt.createdSessionId });
+            router.replace('/(tabs)');
+            return;
+          }
         }
-        await signUp?.prepareEmailAddressVerification({ strategy: 'email_code' });
-        setPendingVerification(true);
-        Alert.alert('Verify your email', 'Enter the 6-digit code we sent to your inbox.');
+      } catch (signInErr: any) {
+        // Fall through to sign-up on not-found or other sign-in errors
+        console.warn('Sign in failed, trying sign up', signInErr);
+      }
+
+      // Sign up if sign-in didn't complete
+      const res = await signUp?.create({
+        emailAddress: email.trim(),
+        password,
+      });
+      if (res?.status === 'complete') {
+        await setActiveSignUp?.({ session: res.createdSessionId });
+        router.replace('/(tabs)');
         return;
       }
+      await signUp?.prepareEmailAddressVerification({ strategy: 'email_code' });
+      setPendingVerification(true);
+      Alert.alert('Verify your email', 'Enter the 6-digit code we sent to your inbox.');
+      return;
     } catch (err: any) {
       const msg = err?.errors?.[0]?.longMessage || err?.message || 'Email authentication failed.';
       Alert.alert('Authentication failed', msg);
@@ -135,29 +122,16 @@ export default function SignInScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.card}>
-              <Text style={styles.title}>Welcome back</Text>
-              <Text style={styles.subtitle}>Sign in to keep saving content.</Text>
-
-              <TouchableOpacity
-                style={[styles.button, styles.googleButton]}
-                onPress={handleGoogle}
-                disabled={loadingGoogle}
-                activeOpacity={0.9}
-              >
-                {loadingGoogle ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={[styles.buttonText, styles.googleText]}>Continue with Google</Text>
-                )}
-              </TouchableOpacity>
+              <Text style={styles.title}>Sign in / up</Text>
+              <Text style={styles.subtitle}>Sign up or sign in with email and unique password</Text>
 
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
+                <Text style={styles.dividerText}> || </Text>
                 <View style={styles.dividerLine} />
               </View>
 
-              {authMode === 'signup' && pendingVerification ? (
+              {pendingVerification ? (
                 <>
                   <Text style={styles.verificationHint}>
                     We sent a code to {email || 'your email'}. Enter it below to finish creating your account.
@@ -219,27 +193,12 @@ export default function SignInScreen() {
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <Text style={styles.buttonText}>
-                        {authMode === 'signin' ? 'Sign in with Email' : 'Create account'}
+                        Continue with Email
                       </Text>
                     )}
                   </TouchableOpacity>
                 </>
               )}
-
-              <TouchableOpacity
-                onPress={() => {
-                  setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
-                  setPendingVerification(false);
-                  setVerificationCode('');
-                }}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.toggleText}>
-                  {authMode === 'signin'
-                    ? "Don't have an account? Create one with email"
-                    : 'Already have an account? Sign in'}
-                </Text>
-              </TouchableOpacity>
 
             </View>
           </ScrollView>
@@ -288,18 +247,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
-  },
-  googleButton: {
-    backgroundColor: '#ec4899',
-    borderWidth: 0,
-    shadowColor: '#ec4899',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  googleText: {
-    color: '#fff',
   },
   phoneButton: {
     backgroundColor: '#ec4899',

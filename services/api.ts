@@ -1,15 +1,13 @@
 const stripeMode = (process.env.EXPO_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
 
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  (stripeMode === 'live'
-    ? process.env.EXPO_PUBLIC_STRIPE_SERVER_URL_LIVE
-    : process.env.EXPO_PUBLIC_STRIPE_SERVER_URL_TEST || process.env.EXPO_PUBLIC_STRIPE_SERVER_URL) ||
-  '';
+  stripeMode === 'live'
+    ? process.env.EXPO_PUBLIC_AI_SERVER_URL_LIVE
+    : process.env.EXPO_PUBLIC_AI_SERVER_URL_TEST || '';
 
 export function ensureApiBaseUrl() {
   if (!API_BASE_URL) {
-    throw new Error('API base URL is not configured. Set EXPO_PUBLIC_API_URL.');
+    throw new Error('API base URL is not configured. Set EXPO_PUBLIC_AI_SERVER_URL_TEST/LIVE.');
   }
   return API_BASE_URL;
 }
