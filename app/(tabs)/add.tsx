@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, FolderPlus, Image as ImageIcon, Link2, Sparkles, Video, X } from 'lucide-react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -77,17 +78,24 @@ export default function AddScreen() {
     const uniqueAvailableFolders = useMemo(() => Array.from(new Set(availableFolders)), [availableFolders]);
     const uniqueSuggestedFolders = useMemo(() => Array.from(new Set(suggestedFolders)), [suggestedFolders]);
 
-    useEffect(() => {
-        const loadFolders = async () => {
-            try {
-                const folders = await getFolders();
-                setAvailableFolders(folders.map(f => f.name));
-            } catch (err) {
-                console.error('Load folders failed', err);
-            }
-        };
-        loadFolders();
+    const refreshFolders = useCallback(async () => {
+        try {
+            const folders = await getFolders();
+            setAvailableFolders(folders.map(f => f.name));
+        } catch (err) {
+            console.error('Load folders failed', err);
+        }
     }, [getFolders]);
+
+    useEffect(() => {
+        void refreshFolders();
+    }, [refreshFolders]);
+
+    useFocusEffect(
+        useCallback(() => {
+            void refreshFolders();
+        }, [refreshFolders])
+    );
 
     useEffect(() => {
         return () => {
@@ -765,7 +773,7 @@ export default function AddScreen() {
                                     )}
                                 </View>
 
-                                {/* AI Clean + Save */}
+                                {/* AI Organize + Save */}
                                 <TouchableOpacity
                                     style={[styles.saveButton, styles.aiButton]}
                                     onPress={runAiMagic}
@@ -774,7 +782,7 @@ export default function AddScreen() {
                                     {aiLoading ? (
                                         <ActivityIndicator color="#ffffff" />
                                     ) : (
-                                        <Text style={styles.saveButtonText}>AI Clean</Text>
+                                        <Text style={styles.saveButtonText}>AI Organize</Text>
                                     )}
                                 </TouchableOpacity>
                                 <TouchableOpacity

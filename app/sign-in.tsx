@@ -142,22 +142,13 @@ export default function SignInScreen() {
                 style={[styles.button, styles.googleButton]}
                 onPress={handleGoogle}
                 disabled={loadingGoogle}
-                activeOpacity={0.85}
+                activeOpacity={0.9}
               >
                 {loadingGoogle ? (
-                  <ActivityIndicator color="#111827" />
+                  <ActivityIndicator color="#fff" />
                 ) : (
                   <Text style={[styles.buttonText, styles.googleText]}>Continue with Google</Text>
                 )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, styles.phoneButton]}
-                onPress={() => router.push('/phone-sign-in')}
-                disabled={!signInLoaded || !signUpLoaded}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.buttonText}>Continue with Phone</Text>
               </TouchableOpacity>
 
               <View style={styles.divider}>
@@ -299,12 +290,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   googleButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    backgroundColor: '#ec4899',
+    borderWidth: 0,
+    shadowColor: '#ec4899',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   googleText: {
-    color: '#111827',
+    color: '#fff',
   },
   phoneButton: {
     backgroundColor: '#ec4899',

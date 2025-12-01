@@ -177,8 +177,12 @@ export default function CollectionsScreen() {
                 <TouchableOpacity
                     style={styles.createButton}
                     onPress={handleCreateFolder}
+                    activeOpacity={0.85}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                    <Plus size={24} color="#ffffff" />
+                    <View pointerEvents="none">
+                        <Plus size={24} color="#ffffff" />
+                    </View>
                 </TouchableOpacity>
             </View>
 
