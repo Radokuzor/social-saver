@@ -5,18 +5,20 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, FolderPlus, Image as ImageIcon, Link2, Sparkles, Video, X } from 'lucide-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
     Keyboard,
+    Platform,
     SafeAreaView,
     ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TextInput,
+    ToastAndroid,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -26,7 +28,9 @@ import { useContent } from '../../hooks/userContent';
 import { analyzeContentWithAI } from '../../services/ai';
 import { extractUrlMetadata } from '../../services/metadata';
 import { imageToBase64 } from '../../services/storage';
-import { checkAndIncrementAiUsage, fetchUserProfile } from '../../services/userProfile';
+import { fetchUserProfile, getPlanLimits } from '../../services/userProfile';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 const Colors = {
     primary: '#ec4899',
@@ -43,7 +47,7 @@ const Colors = {
 type ContentType = 'url' | 'image' | 'video' | null;
 
 export default function AddScreen() {
-    const { isSignedIn, userId } = useAuth();
+    const { isSignedIn, userId, getToken } = useAuth();
     const router = useRouter();
     const { saveContent } = useContent();
     const { getFolders } = useFolders();
@@ -68,6 +72,8 @@ export default function AddScreen() {
     const [aiLoading, setAiLoading] = useState(false);
     const [newTag, setNewTag] = useState('');
     const [clipboardPrefill, setClipboardPrefill] = useState(false);
+    const [toastMessage, setToastMessage] = useState('');
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const uniqueAvailableFolders = useMemo(() => Array.from(new Set(availableFolders)), [availableFolders]);
     const uniqueSuggestedFolders = useMemo(() => Array.from(new Set(suggestedFolders)), [suggestedFolders]);
 
@@ -82,6 +88,71 @@ export default function AddScreen() {
         };
         loadFolders();
     }, [getFolders]);
+
+    useEffect(() => {
+        return () => {
+            if (toastTimer.current) {
+                clearTimeout(toastTimer.current);
+            }
+        };
+    }, []);
+
+    const getOptionalClerkToken = useCallback(async () => {
+        if (!isSignedIn) return undefined;
+        try {
+            const token = await getToken();
+            return token || undefined;
+        } catch {
+            return undefined;
+        }
+    }, [getToken, isSignedIn]);
+
+    const showToast = (message: string) => {
+        if (toastTimer.current) {
+            clearTimeout(toastTimer.current);
+        }
+        setToastMessage(message);
+        toastTimer.current = setTimeout(() => setToastMessage(''), 3000);
+    };
+
+    const showRemainingSavesToast = useCallback(async () => {
+        try {
+            if (!userId) {
+                showToast('Free plan: 5 saves/day · 20/month. Sign in to save.');
+                return;
+            }
+            const profile = await fetchUserProfile(userId);
+            const planId = profile?.subscription?.planId || 'free';
+            const limits = getPlanLimits(planId);
+            const itemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', userId)));
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            let dayCount = 0;
+            let monthCount = 0;
+            itemsSnap.forEach((docSnap) => {
+                const data = docSnap.data() as any;
+                const created = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt;
+                if (created && created >= startOfDay) dayCount += 1;
+                if (created && created >= startOfMonth) monthCount += 1;
+            });
+            const remainingDaily =
+                limits.dailySaves && isFinite(limits.dailySaves)
+                    ? Math.max(limits.dailySaves - dayCount, 0)
+                    : null;
+            const remainingMonthly =
+                limits.monthlySaves && isFinite(limits.monthlySaves)
+                    ? Math.max(limits.monthlySaves - monthCount, 0)
+                    : null;
+            if (remainingDaily === null && remainingMonthly === null) return;
+            const parts: string[] = [];
+            if (typeof remainingDaily === 'number') parts.push(`${remainingDaily} saves left today`);
+            if (typeof remainingMonthly === 'number') parts.push(`${remainingMonthly} left this month`);
+            showToast(parts.length ? parts.join(' · ') : 'Free plan active');
+        } catch (err) {
+            console.warn('Toast remaining saves failed', err);
+        }
+    }, [userId, showToast]);
 
     const handleSelectType = (type: ContentType) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -173,26 +244,8 @@ export default function AddScreen() {
             setIsAnalyzing(true);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-            // AI usage limit check for signed-in users
-            if (isSignedIn) {
-                try {
-                    const profile = await fetchUserProfile(userId || '');
-                    await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
-                } catch (limitErr: any) {
-                    setIsAnalyzing(false);
-                    Alert.alert(
-                        'AI limit reached',
-                        limitErr?.message || 'Upgrade your plan to use more AI.',
-                        [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Upgrade', onPress: () => router.push('/pricing') },
-                        ]
-                    );
-                    return;
-                }
-            }
-
             let analysisResult;
+            const clerkToken = await getOptionalClerkToken();
 
             if (contentType === 'url') {
                 const metadata = await extractUrlMetadata(url);
@@ -201,21 +254,28 @@ export default function AddScreen() {
                 setDescription(metadata.description || '');
                 setTags(metadata.description ? metadata.description.split(' ').slice(0, 5) : []);
                 setAnalyzed(true);
+                void showRemainingSavesToast();
                 setIsAnalyzing(false);
                 return;
             } else if (contentType === 'image') {
                 const base64 = await imageToBase64(mediaUri);
-                analysisResult = await analyzeContentWithAI({
-                    type: 'image',
-                    imageBase64: base64,
-                    preferredFolders: uniqueAvailableFolders,
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'image',
+                        imageBase64: base64,
+                        preferredFolders: uniqueAvailableFolders,
+                    },
+                    clerkToken
+                );
             } else {
-                analysisResult = await analyzeContentWithAI({
-                    type: 'video',
-                    url: mediaUri,
-                    preferredFolders: uniqueAvailableFolders,
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'video',
+                        url: mediaUri,
+                        preferredFolders: uniqueAvailableFolders,
+                    },
+                    clerkToken
+                );
             }
 
             // Keep URL title from metadata; use AI title for media
@@ -233,6 +293,7 @@ export default function AddScreen() {
             setSuggestedFolders(folders);
             setSelectedFolder(folders[0] || null);
             setAnalyzed(true);
+            void showRemainingSavesToast();
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch (error) {
             console.error('Analyze failed', error);
@@ -249,45 +310,38 @@ export default function AddScreen() {
                 return;
             }
             setAiLoading(true);
-            if (isSignedIn) {
-                try {
-                    const profile = await fetchUserProfile(userId || '');
-                    await checkAndIncrementAiUsage(userId || '', profile?.subscription?.planId);
-                } catch (limitErr: any) {
-                    setAiLoading(false);
-                    Alert.alert(
-                        'AI limit reached',
-                        limitErr?.message || 'Upgrade your plan to use more AI.',
-                        [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Upgrade', onPress: () => router.push('/pricing') },
-                        ]
-                    );
-                    return;
-                }
-            }
             let analysisResult;
+            const clerkToken = await getOptionalClerkToken();
 
             if (contentType === 'url') {
                 const metadata = await extractUrlMetadata(url);
-                analysisResult = await analyzeContentWithAI({
-                    type: 'url',
-                    metadata,
-                    preferredFolders: uniqueAvailableFolders,
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'url',
+                        metadata,
+                        preferredFolders: uniqueAvailableFolders,
+                    },
+                    clerkToken
+                );
             } else if (contentType === 'image') {
                 const base64 = await imageToBase64(mediaUri);
-                analysisResult = await analyzeContentWithAI({
-                    type: 'image',
-                    imageBase64: base64,
-                    preferredFolders: uniqueAvailableFolders,
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'image',
+                        imageBase64: base64,
+                        preferredFolders: uniqueAvailableFolders,
+                    },
+                    clerkToken
+                );
             } else {
-                analysisResult = await analyzeContentWithAI({
-                    type: 'video',
-                    url: mediaUri || url,
-                    preferredFolders: uniqueAvailableFolders,
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'video',
+                        url: mediaUri || url,
+                        preferredFolders: uniqueAvailableFolders,
+                    },
+                    clerkToken
+                );
             }
 
             // Prefer AI output, fall back to existing/metadata so UI updates consistently
@@ -303,8 +357,8 @@ export default function AddScreen() {
             setAnalyzed(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch (err) {
-            console.error('AI magic failed', err);
-            Alert.alert('AI magic failed', 'Please try again.');
+            console.error('AI clean failed', err);
+            Alert.alert('AI clean failed', 'Please try again.');
         } finally {
             setAiLoading(false);
         }
@@ -323,11 +377,13 @@ export default function AddScreen() {
 
         if (!isSignedIn) {
             Alert.alert(
-                'Sign up required',
-                'Create an account to save your content.',
+                'Sign up to save',
+                'Create a free account to save this item.',
                 [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Sign up', onPress: () => router.push('/signup') }
+                    {
+                        text: 'OK',
+                        onPress: () => router.push('/(tabs)/profile'),
+                    },
                 ]
             );
             return;
@@ -337,7 +393,8 @@ export default function AddScreen() {
             setIsSaving(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-            await saveContent({
+            const saveResult = await saveContent({
+                // returns remaining limits for toasts
                 type: contentType,
                 url: contentType === 'url' ? url : undefined,
                 mediaUri: contentType !== 'url' ? mediaUri : undefined,
@@ -349,6 +406,17 @@ export default function AddScreen() {
                 aiSuggestedFolders: suggestedFolders,
                 aiCategory: aiCategory || undefined,
             });
+            if (saveResult?.planId === 'free') {
+                const parts: string[] = [];
+                if (typeof saveResult.remainingDaily === 'number') {
+                    parts.push(`${saveResult.remainingDaily} saves left today`);
+                }
+                if (typeof saveResult.remainingMonthly === 'number') {
+                    parts.push(`${saveResult.remainingMonthly} left this month`);
+                }
+                const message = parts.length ? `Free plan: ${parts.join(' · ')}` : 'Saved on free plan.';
+                showToast(message);
+            }
 
             Alert.alert('Success!', 'Your content has been saved', [
                 {
@@ -358,9 +426,24 @@ export default function AddScreen() {
                     }
                 }
             ]);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Save failed', error);
-            Alert.alert('Save failed', 'Could not save your content. Please try again.');
+            const msg = error?.message || 'Could not save your content. Please try again.';
+            const limitHit = msg.toLowerCase().includes('limit');
+            if (limitHit) {
+                Alert.alert(
+                    'Upgrade required',
+                    msg,
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => router.push('/pricing'),
+                        },
+                    ]
+                );
+            } else {
+                Alert.alert('Save failed', msg);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -373,7 +456,7 @@ export default function AddScreen() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" />
+        <StatusBar barStyle="dark-content" />
 
             {/* Header */}
             <View style={styles.header}>
@@ -682,7 +765,7 @@ export default function AddScreen() {
                                     )}
                                 </View>
 
-                                {/* AI Magic + Save */}
+                                {/* AI Clean + Save */}
                                 <TouchableOpacity
                                     style={[styles.saveButton, styles.aiButton]}
                                     onPress={runAiMagic}
@@ -691,7 +774,7 @@ export default function AddScreen() {
                                     {aiLoading ? (
                                         <ActivityIndicator color="#ffffff" />
                                     ) : (
-                                        <Text style={styles.saveButtonText}>AI Magic</Text>
+                                        <Text style={styles.saveButtonText}>AI Clean</Text>
                                     )}
                                 </TouchableOpacity>
                                 <TouchableOpacity
@@ -711,6 +794,11 @@ export default function AddScreen() {
                     </Animated.View>
                 )}
             </ScrollView>
+        {toastMessage ? (
+            <View style={styles.toast}>
+                <Text style={styles.toastText}>{toastMessage}</Text>
+            </View>
+        ) : null}
         </SafeAreaView>
     );
 }
@@ -982,6 +1070,24 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         paddingHorizontal: 12,
         paddingVertical: 10,
+    },
+    toast: {
+        position: 'absolute',
+        bottom: 30,
+        alignSelf: 'center',
+        backgroundColor: '#111827',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 4 },
+    },
+    toastText: {
+        color: '#fff',
+        fontWeight: '700',
+        textAlign: 'center',
     },
     addTagButtonText: {
         color: '#fff',

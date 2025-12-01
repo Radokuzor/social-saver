@@ -1,7 +1,7 @@
 // app/pricing.tsx
-import { useUser } from '@clerk/clerk-expo';
+import { useAuth } from '@clerk/clerk-expo';
+import { useNavigation } from 'expo-router';
 import { useStripe } from '@stripe/stripe-react-native';
-import { useRouter, useNavigation } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -17,8 +17,8 @@ import {
   View
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeProvider';
+import useSubscription from '../hooks/useSubscription';
 import stripeClient from '../services/stripeClient';
-import { fetchUserProfile, saveUserSubscription } from '../services/userProfile';
 
 const { width } = Dimensions.get('window');
 
@@ -99,9 +99,10 @@ const plans: Plan[] = [
 ];
 
 export default function PricingScreen() {
-  const router = useRouter();
   const navigation = useNavigation();
-  const { user } = useUser();
+  const { getToken } = useAuth();
+  const { subscription, isLoading: subscriptionLoading } = useSubscription();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -109,8 +110,6 @@ export default function PricingScreen() {
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [currentPlan, setCurrentPlan] = useState<string>('free');
   const [isProcessing, setIsProcessing] = useState(false);
-
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
   // Style the native header back button and title
   useLayoutEffect(() => {
@@ -124,20 +123,11 @@ export default function PricingScreen() {
 
   // Load current plan from Firestore
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!user?.id) return;
-      try {
-        const profile = await fetchUserProfile(user.id);
-        const planId = profile?.subscription?.planId;
-        const cycle = profile?.subscription?.billingCycle;
-        if (planId) setCurrentPlan(planId);
-        if (cycle) setBillingCycle(cycle);
-      } catch (err) {
-        console.warn('Could not load subscription', err);
-      }
-    };
-    loadProfile();
-  }, [user?.id]);
+    setCurrentPlan(subscription.planId || 'free');
+    if (subscription.billingCycle === 'yearly' || subscription.billingCycle === 'monthly') {
+      setBillingCycle(subscription.billingCycle);
+    }
+  }, [subscription.planId, subscription.billingCycle]);
 
   const handleSelectPlan = async (planId: string) => {
     if (planId === currentPlan || planId === 'free') return;
@@ -153,83 +143,47 @@ export default function PricingScreen() {
     try {
       setIsProcessing(true);
 
-      const email = user?.primaryEmailAddress?.emailAddress ||
-        user?.emailAddresses?.[0]?.emailAddress || undefined;
-      const name = user?.fullName || user?.firstName || undefined;
-
-      if (!email) {
-        Alert.alert('Error', 'Email address is required for payment');
-        setIsProcessing(false);
+      const token = await getToken();
+      if (!token) {
+        Alert.alert('Sign in required', 'Please sign in to start a subscription.');
         return;
       }
 
-      // Ask server to create customer + subscription using Stripe Prices
-      const subResp = await stripeClient.createSubscription({
+      const subResp = await stripeClient.createSubscriptionPaymentSheet({
+        token,
         planId: selectedPlan.id,
         billingCycle,
-        email,
-        name: name || undefined,
       });
 
-      const clientSecret = subResp.paymentIntentClientSecret ||
-        subResp.clientSecret ||
-        subResp.payment_intent_client_secret;
+      const paymentIntentClientSecret = subResp?.paymentIntentClientSecret;
+      const customerId = subResp?.customerId;
+      const customerEphemeralKeySecret =
+        subResp?.customerEphemeralKeySecret || subResp?.ephemeralKeySecret;
 
-      const customerId = subResp.customerId || subResp.customer_id;
-      const ephemeralKeySecret = subResp.ephemeralKeySecret ||
-        subResp.customerEphemeralKeySecret ||
-        subResp.ephemeral_key_secret;
-
-      if (!clientSecret || !customerId || !ephemeralKeySecret) {
-        throw new Error('Missing payment data from server. Please try again.');
+      if (!paymentIntentClientSecret || !customerId || !customerEphemeralKeySecret) {
+        throw new Error('Missing payment sheet data from server. Please try again.');
       }
 
-      // Initialize payment sheet with customer + ephemeral key for subscriptions
-      const initResponse = await initPaymentSheet({
-        paymentIntentClientSecret: clientSecret,
+      const init = await initPaymentSheet({
+        paymentIntentClientSecret,
         customerId,
-        customerEphemeralKeySecret: ephemeralKeySecret,
+        customerEphemeralKeySecret,
         merchantDisplayName: 'Social Saver',
         allowsDelayedPaymentMethods: false,
-        defaultBillingDetails: {
-          name: name || undefined,
-          email: email || undefined,
-        }
       });
 
-      if (initResponse.error) {
-        throw initResponse.error;
+      if (init.error) {
+        throw init.error;
       }
 
-      // Hide loader before presenting the sheet so users see the native UI
-      setIsProcessing(false);
-
-      // Present payment sheet
-      const presentResponse = await presentPaymentSheet();
-
-      if (presentResponse.error) {
-        throw presentResponse.error;
-      }
-
-      // Persist subscription details
-      if (user?.id) {
-        try {
-          await saveUserSubscription(user.id, {
-            planId: selectedPlan.id,
-            planName: selectedPlan.name,
-            billingCycle,
-            stripeCustomerId: customerId,
-            stripeSubscriptionId: subResp.subscriptionId || subResp.subscription_id || '',
-          });
-          setCurrentPlan(selectedPlan.id);
-        } catch (persistErr) {
-          console.warn('Save subscription failed', persistErr);
-        }
+      const present = await presentPaymentSheet();
+      if (present.error) {
+        throw present.error;
       }
 
       Alert.alert(
-        'Payment Successful!',
-        `Welcome to ${selectedPlan.name}! Your subscription is now active.`
+        'Payment Successful',
+        'Your subscription is being activated. It may take a moment to reflect.'
       );
 
     } catch (err: any) {
@@ -250,6 +204,14 @@ export default function PricingScreen() {
       setIsProcessing(false);
     }
   };
+
+  if (subscriptionLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>

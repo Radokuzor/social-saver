@@ -37,7 +37,7 @@ interface SaveContentParams {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function useContent() {
-    const { userId } = useAuth();
+    const { userId, getToken } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -185,8 +185,20 @@ export function useContent() {
                 throw new Error('Failed to save content after retries');
             }
 
+            const remainingDaily = limits.dailySaves && isFinite(limits.dailySaves)
+                ? Math.max(limits.dailySaves - (counts.day + 1), 0)
+                : null;
+            const remainingMonthly = limits.monthlySaves && isFinite(limits.monthlySaves)
+                ? Math.max(limits.monthlySaves - (counts.month + 1), 0)
+                : null;
+
             console.log('[content] saved with ID:', docRef.id);
-            return docRef.id;
+            return {
+                id: docRef.id,
+                planId,
+                remainingDaily,
+                remainingMonthly,
+            };
         } catch (err: any) {
             const errorMessage = err?.message || 'Failed to save content';
             console.error('[content] Save content error:', err);
@@ -364,26 +376,44 @@ export function useContent() {
             setLoading(true);
             setError(null);
 
+            if (!userId) {
+                throw new Error('User not authenticated');
+            }
+
+            const clerkToken = await getToken();
+            if (!clerkToken) {
+                throw new Error('Missing authentication token');
+            }
+
             let analysisResult;
 
             if (type === 'url') {
                 const metadata = await extractUrlMetadata(urlOrUri);
-                analysisResult = await analyzeContentWithAI({
-                    type: 'url',
-                    metadata,
-                    url: urlOrUri
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'url',
+                        metadata,
+                        url: urlOrUri
+                    },
+                    clerkToken
+                );
             } else if (type === 'image') {
                 const base64 = await imageToBase64(urlOrUri);
-                analysisResult = await analyzeContentWithAI({
-                    type: 'image',
-                    imageBase64: base64
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'image',
+                        imageBase64: base64
+                    },
+                    clerkToken
+                );
             } else {
-                analysisResult = await analyzeContentWithAI({
-                    type: 'video',
-                    url: urlOrUri
-                });
+                analysisResult = await analyzeContentWithAI(
+                    {
+                        type: 'video',
+                        url: urlOrUri
+                    },
+                    clerkToken
+                );
             }
 
             return analysisResult;

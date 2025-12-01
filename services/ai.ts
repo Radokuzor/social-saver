@@ -47,7 +47,8 @@ export async function analyzeContentWithAI(
         metadata?: any;
         imageBase64?: string;
         preferredFolders?: string[];
-    }
+    },
+    clerkToken?: string | null
 ): Promise<AIAnalysisResult> {
     // Call your server to do the OpenAI work
     if (!AI_SERVER_URL) {
@@ -67,7 +68,10 @@ export async function analyzeContentWithAI(
                     ? content.preferredFolders
                     : PREFERRED_FOLDERS,
             },
-            { timeout: 20000 }
+            {
+                timeout: 20000,
+                headers: clerkToken ? { Authorization: `Bearer ${clerkToken}` } : undefined,
+            }
         );
         return response.data;
     } catch (error) {

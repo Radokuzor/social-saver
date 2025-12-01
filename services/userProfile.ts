@@ -14,11 +14,12 @@ export const PLAN_LIMITS: Record<string, {
     dailySaves?: number;
     monthlySaves?: number;
     aiMonthly?: number;
+    aiDaily?: number;
 }> = {
-    free: { dailySaves: 15, monthlySaves: 20, aiMonthly: 10 },
-    plus: { monthlySaves: 100, aiMonthly: 25 }, // Basic
-    pro: { monthlySaves: Infinity, aiMonthly: Infinity }, // Better
-    business: { monthlySaves: Infinity, aiMonthly: Infinity }, // Best
+    free: { dailySaves: 5, monthlySaves: 20, aiMonthly: 10, aiDaily: 3 },
+    plus: { monthlySaves: 100, aiMonthly: 25, aiDaily: 10 }, // Basic
+    pro: { monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Better
+    business: { monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Best
 };
 
 export async function syncClerkUserToFirestore(user: ClerkUserData) {
@@ -64,8 +65,11 @@ export async function saveUserSubscription(userId: string, data: {
 export async function fetchUserProfile(userId: string) {
     if (!userId) return null;
     const userRef = doc(db, 'users', userId);
-    const snap = await getDoc(userRef);
-    return snap.exists() ? snap.data() : null;
+    const subRef = doc(db, 'users', userId, 'meta', 'subscription');
+    const [userSnap, subSnap] = await Promise.all([getDoc(userRef), getDoc(subRef)]);
+    const base = userSnap.exists() ? userSnap.data() : {};
+    const sub = subSnap.exists() ? { subscription: subSnap.data() } : {};
+    return { ...base, ...sub };
 }
 
 export function getPlanLimits(planId?: string) {
@@ -76,10 +80,11 @@ export function getPlanLimits(planId?: string) {
 export async function checkAndIncrementAiUsage(userId: string, planId?: string) {
     if (!userId) return;
     const limits = getPlanLimits(planId);
-    if (!limits.aiMonthly || limits.aiMonthly === Infinity) return;
+    if ((!limits.aiMonthly || limits.aiMonthly === Infinity) && (!limits.aiDaily || limits.aiDaily === Infinity)) return;
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     const usageSnap = await getDocs(query(
         collection(db, 'aiUsage'),
@@ -87,8 +92,16 @@ export async function checkAndIncrementAiUsage(userId: string, planId?: string) 
         where('createdAt', '>=', monthStart)
     ));
 
-    if (usageSnap.size >= limits.aiMonthly) {
+    const dayCount = usageSnap.docs.reduce((count, docSnap) => {
+        const created = docSnap.data().createdAt?.toDate ? docSnap.data().createdAt.toDate() : docSnap.data().createdAt;
+        return created && created >= dayStart ? count + 1 : count;
+    }, 0);
+
+    if (limits.aiMonthly && isFinite(limits.aiMonthly) && usageSnap.size >= limits.aiMonthly) {
         throw new Error(`AI limit reached for this month (${limits.aiMonthly}). Upgrade to continue.`);
+    }
+    if (limits.aiDaily && isFinite(limits.aiDaily) && dayCount >= limits.aiDaily) {
+        throw new Error(`AI daily limit reached (${limits.aiDaily}). Upgrade to continue.`);
     }
 
     await addDoc(collection(db, 'aiUsage'), {

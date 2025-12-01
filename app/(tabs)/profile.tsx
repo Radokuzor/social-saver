@@ -72,6 +72,7 @@ export default function ProfileScreen() {
     const [profileFirstName, setProfileFirstName] = useState<string | null>(null);
     const [profileLastName, setProfileLastName] = useState<string | null>(null);
     const [showSupportModal, setShowSupportModal] = useState(false);
+    const [deletingAccount, setDeletingAccount] = useState(false);
     const ensureCountryCode = (raw: string) => {
         const trimmed = raw.trim();
         if (!trimmed) return '';
@@ -152,7 +153,7 @@ export default function ProfileScreen() {
                     onPress: async () => {
                         try {
                             await signOut();
-                            router.replace('/signup');
+                            router.replace('/sign-in');
                         } catch (err) {
                             console.error('Clerk sign out failed', err);
                             Alert.alert('Logout failed', 'Please try again.');
@@ -164,17 +165,39 @@ export default function ProfileScreen() {
     };
 
     const handleDeleteAccount = () => {
+        if (deletingAccount) return;
         Alert.alert(
             'Delete Account',
-            'This will permanently delete your account and all your saved content. This action cannot be undone.',
+            'This will permanently delete your account and all saved content. This action cannot be undone.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Delete',
                     style: 'destructive',
-                    onPress: () => {
-                        // TODO: Implement account deletion
-                        console.log('Deleting account...');
+                    onPress: async () => {
+                        if (!user?.id) {
+                            Alert.alert('Not signed in', 'Please sign in first.');
+                            return;
+                        }
+                        try {
+                            setDeletingAccount(true);
+                            // Mark account for deletion handling later; keep data intact for now.
+                            await setDoc(
+                                doc(db, 'users', user.id),
+                                {
+                                    deletionRequested: true,
+                                    deletionRequestedAt: new Date(),
+                                },
+                                { merge: true }
+                            );
+                            await signOut();
+                            router.replace('/sign-in');
+                        } catch (err) {
+                            console.error('Account deletion flag failed', err);
+                            Alert.alert('Action failed', 'Could not mark your account for deletion. Please try again.');
+                        } finally {
+                            setDeletingAccount(false);
+                        }
                     }
                 },
             ]
@@ -323,6 +346,7 @@ export default function ProfileScreen() {
                         label="Delete Account"
                         iconColor={Colors.danger}
                         labelColor={Colors.danger}
+                        subtitle={deletingAccount ? 'Signing out...' : undefined}
                         onPress={handleDeleteAccount}
                         showChevron={false}
                         colors={colors}
@@ -339,7 +363,7 @@ export default function ProfileScreen() {
                         <Text style={styles.overlaySubtitle}>Sign up or sign in to sync your profile and saved content.</Text>
                         <TouchableOpacity
                             style={styles.overlayButton}
-                            onPress={() => router.push('/signup')}
+                            onPress={() => router.push('/sign-in')}
                             activeOpacity={0.85}
                         >
                             <Text style={styles.overlayButtonText}>Sign up / Sign in</Text>

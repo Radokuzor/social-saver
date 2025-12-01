@@ -1,15 +1,16 @@
-import { ClerkProvider } from '@clerk/clerk-expo';
+import { ClerkLoaded, ClerkProvider } from '@clerk/clerk-expo';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import FirebaseAuthSync from '@/components/FirebaseAuthSync';
 import { useColorScheme } from '@/components/useColorScheme';
+import tokenCache from '../lib/tokenCache';
 import { ThemeProvider as AppThemeProvider } from '../contexts/ThemeProvider';
 
 export {
@@ -24,23 +25,6 @@ export const unstable_settings = {
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
-
-const tokenCache = {
-  async getToken(key: string) {
-    try {
-      return await SecureStore.getItemAsync(key);
-    } catch {
-      return null;
-    }
-  },
-  async saveToken(key: string, value: string) {
-    try {
-      await SecureStore.setItemAsync(key, value);
-    } catch {
-      // ignore cache write errors
-    }
-  },
-};
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -68,8 +52,13 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const clerkKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const stripeMode = (process.env.EXPO_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
+  const clerkKey =
+    stripeMode === 'live'
+      ? process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY_LIVE ||
+        process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
+      : process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY_TEST ||
+        process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const stripePublishableKey =
     stripeMode === 'live'
       ? process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE || ''
@@ -79,16 +68,21 @@ function RootLayoutNav() {
 
   return (
     <ClerkProvider publishableKey={clerkKey || ''} tokenCache={tokenCache}>
-      <StripeProvider publishableKey={stripePublishableKey}>
-        <AppThemeProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-            </Stack>
-          </ThemeProvider>
-        </AppThemeProvider>
-      </StripeProvider>
+      <ClerkLoaded>
+        <FirebaseAuthSync />
+        <StripeProvider publishableKey={stripePublishableKey}>
+          <AppThemeProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+                <Stack.Screen name="phone-sign-in" options={{ title: 'Phone sign in' }} />
+              </Stack>
+            </ThemeProvider>
+          </AppThemeProvider>
+        </StripeProvider>
+      </ClerkLoaded>
     </ClerkProvider>
   );
 }
