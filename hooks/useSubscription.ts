@@ -1,7 +1,7 @@
 import { onSnapshot, doc } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
 import { db } from '../lib/firebase';
-import useClerkFirebaseAuth from './useClerkFirebaseAuth';
+import useFirebaseAuth from './useFirebaseAuth';
 
 export type SubscriptionInfo = {
   planId: string | null;
@@ -15,7 +15,7 @@ export type SubscriptionInfo = {
 };
 
 export function useSubscription() {
-  const { clerkUser } = useClerkFirebaseAuth();
+  const { uid, user } = useFirebaseAuth();
   const [subscription, setSubscription] = useState<SubscriptionInfo>({
     planId: null,
     planName: null,
@@ -30,7 +30,7 @@ export function useSubscription() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!clerkUser?.id) {
+    if (!uid) {
       setSubscription({
         planId: null,
         planName: null,
@@ -48,9 +48,9 @@ export function useSubscription() {
 
     setIsLoading(true);
     setError(null);
-    const userRef = doc(db, 'users', clerkUser.id);
-    const metaSubRef = doc(db, 'users', clerkUser.id, 'meta', 'subscription');
-    const legacySubscriptionDocRef = doc(db, 'users', clerkUser.id, 'subscription', 'current');
+    const userRef = doc(db, 'users', uid);
+    const metaSubRef = doc(db, 'users', uid, 'meta', 'subscription');
+    const legacySubscriptionDocRef = doc(db, 'users', uid, 'subscription', 'current');
 
     const applyData = (sub: any) => {
       if (!sub) {
@@ -102,7 +102,7 @@ export function useSubscription() {
       unsubMeta();
       unsubLegacy();
     };
-  }, [clerkUser?.id]);
+  }, [uid]);
 
   const derived = useMemo(() => {
     const isActive = subscription.status === 'active';

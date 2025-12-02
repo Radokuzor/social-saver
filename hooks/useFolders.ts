@@ -1,5 +1,5 @@
 // hooks/useFolders.ts
-import { useAuth } from '@clerk/clerk-expo';
+import useFirebaseAuth from './useFirebaseAuth';
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { useCallback, useState } from 'react';
 import { db } from '../services/firebase';
@@ -15,7 +15,7 @@ export interface FolderDoc {
 }
 
 export function useFolders() {
-    const { userId } = useAuth();
+    const { uid: userId } = useFirebaseAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 

@@ -19,7 +19,7 @@ export async function fetchWithAuth(
 ) {
   const baseUrl = ensureApiBaseUrl();
   if (!clerkToken) {
-    throw new Error('Missing Clerk token for authenticated request.');
+    throw new Error('Missing auth token for authenticated request.');
   }
   const incomingHeaders =
     init.headers instanceof Headers ? Object.fromEntries(init.headers.entries()) : (init.headers || {});

@@ -29,12 +29,12 @@ import {
     View,
     Linking,
 } from 'react-native';
-import { useAuth, useClerk, useUser } from '@clerk/clerk-expo';
 import { useContent } from '../../hooks/userContent';
 import { useFolders } from '../../hooks/useFolders';
 import { useTheme } from '../../contexts/ThemeProvider';
 import { db } from '../../services/firebase';
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 
 const Colors = {
     primary: '#ec4899',
@@ -48,9 +48,7 @@ const Colors = {
 
 export default function ProfileScreen() {
     const router = useRouter();
-    const { isSignedIn } = useAuth();
-    const { user } = useUser();
-    const { signOut } = useClerk();
+    const { user, uid, signOut } = useFirebaseAuth();
     const { getContent } = useContent();
     const { getFolders } = useFolders();
     const { colors, setTheme, theme } = useTheme();
@@ -83,7 +81,7 @@ export default function ProfileScreen() {
     };
 
     const loadStats = useCallback(async () => {
-        if (!isSignedIn) {
+        if (!uid) {
             setItemCount(null);
             setCollectionCount(null);
             setTagCount(null);
@@ -109,7 +107,7 @@ export default function ProfileScreen() {
             setTagCount(tags.size);
 
             // Load profile info
-            const docRef = doc(db, 'users', user?.id || '');
+            const docRef = doc(db, 'users', uid || '');
             const snap = await getDoc(docRef);
             if (snap.exists()) {
                 const data = snap.data() as any;
@@ -129,7 +127,7 @@ export default function ProfileScreen() {
             setCollectionCount(0);
             setTagCount(0);
         }
-    }, [isSignedIn, getContent, getFolders, user?.id]);
+    }, [uid, getContent, getFolders]);
 
     useEffect(() => {
         loadStats();
@@ -155,7 +153,7 @@ export default function ProfileScreen() {
                             await signOut();
                             router.replace('/sign-in');
                         } catch (err) {
-                            console.error('Clerk sign out failed', err);
+                            console.error('Sign out failed', err);
                             Alert.alert('Logout failed', 'Please try again.');
                         }
                     }
@@ -175,7 +173,7 @@ export default function ProfileScreen() {
                     text: 'Delete',
                     style: 'destructive',
                     onPress: async () => {
-                        if (!user?.id) {
+                        if (!uid) {
                             Alert.alert('Not signed in', 'Please sign in first.');
                             return;
                         }
@@ -183,7 +181,7 @@ export default function ProfileScreen() {
                             setDeletingAccount(true);
                             // Mark account for deletion handling later; keep data intact for now.
                             await setDoc(
-                                doc(db, 'users', user.id),
+                                doc(db, 'users', uid),
                                 {
                                     deletionRequested: true,
                                     deletionRequestedAt: new Date(),
@@ -225,21 +223,21 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.userInfo}>
                         <Text style={styles.userName}>
-                            {isSignedIn
-                                ? `${(profileFirstName || user?.firstName || '')} ${(profileLastName || user?.lastName || '')}`.trim() || 'Your name'
+                            {uid
+                                ? `${(profileFirstName || user?.displayName || '')}`.trim() || 'Your name'
                                 : 'Guest User'}
                         </Text>
                         {profileHandle ? (
                             <Text style={[styles.handle, { color: colors.primary }]}>@{profileHandle}</Text>
                         ) : null}
                         <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
-                            {isSignedIn ? (user?.primaryEmailAddress?.emailAddress || 'email not set') : 'Not signed in'}
+                            {uid ? (user?.email || 'email not set') : 'Not signed in'}
                         </Text>
                         {profilePhone ? (
                             <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{profilePhone}</Text>
                         ) : null}
                     </View>
-                    {isSignedIn && (
+                    {uid && (
                         <TouchableOpacity
                             style={styles.editButton}
                             onPress={() => {
@@ -247,8 +245,8 @@ export default function ProfileScreen() {
                                 setHandleInput(profileHandle ? `@${profileHandle}` : '');
                                 setPhoneInput(profilePhone || '');
                                 setHandleError(null);
-                                setFirstNameInput(profileFirstName || user?.firstName || '');
-                                setLastNameInput(profileLastName || user?.lastName || '');
+                                setFirstNameInput(profileFirstName || user?.displayName || '');
+                                setLastNameInput(profileLastName || '');
                                 setShowProfileModal(true);
                             }}
                         >
@@ -356,7 +354,7 @@ export default function ProfileScreen() {
                 <Text style={styles.version}>Version 1.0.0 (Beta)</Text>
             </ScrollView>
 
-            {!isSignedIn && (
+            {!uid && (
                 <View style={styles.overlay}>
                     <View style={styles.overlayBox}>
                         <Text style={styles.overlayTitle}>Join Social Saver</Text>
@@ -505,7 +503,7 @@ export default function ProfileScreen() {
                                     <TouchableOpacity
                                         style={[styles.modalButton, { backgroundColor: colors.primary }]}
                                         onPress={async () => {
-                                            if (!user?.id) return;
+                                            if (!uid) return;
                                             const trimmed = handleInput.trim().replace(/^@/, '');
                                             if (!trimmed) {
                                                 setHandleError('Handle is required');
@@ -515,36 +513,29 @@ export default function ProfileScreen() {
                                             setSavingProfile(true);
                                             try {
                                                 // Ensure handle is unique
-                                        const handlesRef = collection(db, 'users');
-                                        const q = query(handlesRef, where('handleLower', '==', canonical));
-                                        const snap = await getDocs(q);
-                                        const taken = snap.docs.some(d => d.id !== user.id);
+                                                const handlesRef = collection(db, 'users');
+                                                const q = query(handlesRef, where('handleLower', '==', canonical));
+                                                const snap = await getDocs(q);
+                                                const taken = snap.docs.some(d => d.id !== uid);
                                                 if (taken) {
                                                     setHandleError('Handle already taken. Choose another.');
                                                     setSavingProfile(false);
                                                     return;
                                                 }
                                                 const normalizedPhone = phoneInput ? ensureCountryCode(phoneInput) : '';
-                                            await setDoc(doc(db, 'users', user.id), {
-                                                userId: user.id,
-                                                handle: trimmed,
-                                                handleLower: canonical,
-                                                phoneNumber: normalizedPhone,
-                                                firstName: firstNameInput || '',
-                                                lastName: lastNameInput || '',
-                                                updatedAt: new Date(),
-                                            }, { merge: true });
-                                            setProfileHandle(trimmed);
-                                            setProfilePhone(normalizedPhone || null);
-                                            setProfileFirstName(firstNameInput || null);
-                                            setProfileLastName(lastNameInput || null);
-                                            // Update Clerk user metadata for display (optional)
-                                            if (user) {
-                                                await user.update?.({
-                                                    firstName: firstNameInput || undefined,
-                                                    lastName: lastNameInput || undefined,
-                                                    } as any);
-                                                }
+                                                await setDoc(doc(db, 'users', uid), {
+                                                    userId: uid,
+                                                    handle: trimmed,
+                                                    handleLower: canonical,
+                                                    phoneNumber: normalizedPhone,
+                                                    firstName: firstNameInput || '',
+                                                    lastName: lastNameInput || '',
+                                                    updatedAt: new Date(),
+                                                }, { merge: true });
+                                                setProfileHandle(trimmed);
+                                                setProfilePhone(normalizedPhone || null);
+                                                setProfileFirstName(firstNameInput || null);
+                                                setProfileLastName(lastNameInput || null);
                                                 setShowProfileModal(false);
                                             } catch (err) {
                                                 console.error('Save profile failed', err);

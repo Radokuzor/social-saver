@@ -1,4 +1,3 @@
-import { useAuth, useSignIn, useSignUp } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -16,94 +15,38 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import useFirebaseAuth from '../hooks/useFirebaseAuth';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const { isSignedIn } = useAuth();
-  const { isLoaded: signInLoaded, signIn, setActive: setActiveSignIn } = useSignIn();
-  const { isLoaded: signUpLoaded, signUp, setActive: setActiveSignUp } = useSignUp();
+  const { user, signIn, signUp } = useFirebaseAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
-  const [pendingVerification, setPendingVerification] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
 
   useEffect(() => {
-    if (isSignedIn) {
+    if (user) {
       router.replace('/(tabs)');
     }
-  }, [isSignedIn, router]);
+  }, [user, router]);
 
   const handleEmailAuth = async () => {
-    if (!signInLoaded || !signUpLoaded || !email || !password) return;
+    if (!email || !password) return;
     try {
       setEmailLoading(true);
-      // Try sign-in first
+      const trimmed = email.trim();
       try {
-        const res = await signIn?.create({
-          identifier: email.trim(),
-          password,
-        });
-        if (res?.status === 'complete') {
-          await setActiveSignIn?.({ session: res.createdSessionId });
-          router.replace('/(tabs)');
-          return;
-        }
-        // If password first factor is needed, attempt it
-        if (res?.status === 'needs_first_factor') {
-          const attempt = await signIn?.attemptFirstFactor({
-            strategy: 'password',
-            password,
-          });
-          if (attempt?.status === 'complete') {
-            await setActiveSignIn?.({ session: attempt.createdSessionId });
-            router.replace('/(tabs)');
-            return;
-          }
-        }
+        await signIn(trimmed, password);
+        router.replace('/(tabs)');
+        return;
       } catch (signInErr: any) {
-        // Fall through to sign-up on not-found or other sign-in errors
         console.warn('Sign in failed, trying sign up', signInErr);
-      }
-
-      // Sign up if sign-in didn't complete
-      const res = await signUp?.create({
-        emailAddress: email.trim(),
-        password,
-      });
-      if (res?.status === 'complete') {
-        await setActiveSignUp?.({ session: res.createdSessionId });
+        await signUp(trimmed, password);
         router.replace('/(tabs)');
-        return;
       }
-      await signUp?.prepareEmailAddressVerification({ strategy: 'email_code' });
-      setPendingVerification(true);
-      Alert.alert('Verify your email', 'Enter the 6-digit code we sent to your inbox.');
-      return;
     } catch (err: any) {
-      const msg = err?.errors?.[0]?.longMessage || err?.message || 'Email authentication failed.';
+      const msg = err?.message || 'Email authentication failed.';
       Alert.alert('Authentication failed', msg);
-    } finally {
-      setEmailLoading(false);
-    }
-  };
-
-  const handleVerifyEmail = async () => {
-    if (!verificationCode || !signUp) return;
-    try {
-      setEmailLoading(true);
-      const attempt = await signUp.attemptEmailAddressVerification({
-        code: verificationCode.trim(),
-      });
-      if (attempt.status === 'complete') {
-        await setActiveSignUp?.({ session: attempt.createdSessionId });
-        router.replace('/(tabs)');
-        return;
-      }
-      Alert.alert('Verification needed', 'Please complete verification steps.');
-    } catch (err: any) {
-      const msg = err?.errors?.[0]?.longMessage || err?.message || 'Invalid code. Please try again.';
-      Alert.alert('Verification failed', msg);
     } finally {
       setEmailLoading(false);
     }
@@ -122,83 +65,51 @@ export default function SignInScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.card}>
-              <Text style={styles.title}>Sign in / up</Text>
-              <Text style={styles.subtitle}>Sign up or sign in with email and unique password</Text>
+              <Text style={styles.title}>Sign in or create an account</Text>
+              <Text style={styles.subtitle}>Use your email and password. If you don&apos;t have an account, we&apos;ll create one automatically.</Text>
 
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}> || </Text>
+                <Text style={styles.dividerText}>or</Text>
                 <View style={styles.dividerLine} />
               </View>
 
-              {pendingVerification ? (
-                <>
-                  <Text style={styles.verificationHint}>
-                    We sent a code to {email || 'your email'}. Enter it below to finish creating your account.
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  placeholder="you@example.com"
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  style={styles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  placeholder="••••••••"
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.button, styles.emailButton, (!email || !password || emailLoading) && styles.disabled]}
+                onPress={handleEmailAuth}
+                disabled={!email || !password || emailLoading}
+                activeOpacity={0.85}
+              >
+                {emailLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>
+                    Continue with Email
                   </Text>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Verification code</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={verificationCode}
-                      onChangeText={setVerificationCode}
-                      keyboardType="number-pad"
-                      placeholder="6-digit code"
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.button, styles.emailButton, (!verificationCode || emailLoading) && styles.disabled]}
-                    onPress={handleVerifyEmail}
-                    disabled={!verificationCode || emailLoading}
-                    activeOpacity={0.85}
-                  >
-                    {emailLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.buttonText}>Verify and finish</Text>
-                    )}
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Email</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={email}
-                      onChangeText={setEmail}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="email-address"
-                      placeholder="you@example.com"
-                    />
-                  </View>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Password</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry
-                      placeholder="••••••••"
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.button, styles.emailButton, (!email || !password || emailLoading) && styles.disabled]}
-                    onPress={handleEmailAuth}
-                    disabled={!email || !password || emailLoading}
-                    activeOpacity={0.85}
-                  >
-                    {emailLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.buttonText}>
-                        Continue with Email
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </>
-              )}
+                )}
+              </TouchableOpacity>
 
             </View>
           </ScrollView>
@@ -292,18 +203,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     fontWeight: '600',
   },
-  toggleText: {
-    color: '#0ea5e9',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: 8,
-  },
   disabled: {
     opacity: 0.6,
-  },
-  verificationHint: {
-    color: '#4b5563',
-    textAlign: 'center',
-    marginBottom: 8,
   },
 });

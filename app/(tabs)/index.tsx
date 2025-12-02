@@ -1,5 +1,4 @@
 // app/(tabs)/index.tsx - Enhanced with debugging
-import { useAuth, useUser } from '@clerk/clerk-expo';
 import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -26,6 +25,7 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useContent } from '../../hooks/userContent';
 import { useTheme } from '../../contexts/ThemeProvider';
+import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 
 const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
@@ -35,8 +35,7 @@ const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
 export default function HomeScreen() {
   const { getContent, deleteContent } = useContent();
-  const { isSignedIn, userId } = useAuth();
-  const { user } = useUser();
+  const { uid, user } = useFirebaseAuth();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +51,7 @@ export default function HomeScreen() {
     try {
       setLoading(true);
       console.log('[home] 🚀 Starting content load...');
-      console.log('[home] Auth status:', { isSignedIn, userId });
+      console.log('[home] Auth status:', { isSignedIn: !!uid, userId: uid });
 
       const data = await getContent();
       console.log('[home] ✅ Content loaded:', data?.length, 'items');
@@ -74,26 +73,26 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [isSignedIn, userId, getContent]);
+  }, [uid, getContent]);
 
   useEffect(() => {
     console.log('[home] 🎬 Component mounted');
-    console.log('[home] Initial auth state:', { isSignedIn, userId });
+      console.log('[home] Initial auth state:', { isSignedIn: !!uid, userId: uid });
   }, []);
 
   useEffect(() => {
-    console.log('[home] 🔄 Auth state changed:', { isSignedIn, userId });
-    if (isSignedIn) {
+    console.log('[home] 🔄 Auth state changed:', { isSignedIn: !!uid, userId: uid });
+    if (uid) {
       loadContent();
     } else {
       setItems([]);
     }
-  }, [isSignedIn, userId, loadContent]);
+  }, [uid, loadContent]);
 
   useFocusEffect(
     useCallback(() => {
       console.log('[home] 👁️ Screen focused');
-      if (!isSignedIn) {
+      if (!uid) {
         console.log('[home] User not signed in, skipping load');
         setItems([]);
         return;
@@ -115,18 +114,18 @@ export default function HomeScreen() {
         mounted = false;
         console.log('[home] 👋 Screen unfocused');
       };
-    }, [isSignedIn, getContent]),
+    }, [uid, getContent]),
   );
 
   const onRefresh = useCallback(async () => {
-    if (!isSignedIn) return;
+    if (!uid) return;
     try {
       setRefreshing(true);
       await loadContent();
     } finally {
       setRefreshing(false);
     }
-  }, [isSignedIn, loadContent]);
+  }, [uid, loadContent]);
 
   useFocusEffect(
     useCallback(() => {
@@ -200,7 +199,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={[styles.greeting, { color: colors.text }]}>
-            Hello, {user?.firstName || 'there'} ✨
+            Hello, {(user?.displayName || user?.email || 'there')} ✨
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Your saved content

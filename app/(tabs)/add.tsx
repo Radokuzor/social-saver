@@ -1,5 +1,4 @@
 // app/(tabs)/add.tsx
-import { useAuth } from '@clerk/clerk-expo';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -26,6 +25,7 @@ import {
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { useFolders } from '../../hooks/useFolders';
 import { useContent } from '../../hooks/userContent';
+import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 import { analyzeContentWithAI } from '../../services/ai';
 import { extractUrlMetadata } from '../../services/metadata';
 import { imageToBase64 } from '../../services/storage';
@@ -48,7 +48,7 @@ const Colors = {
 type ContentType = 'url' | 'image' | 'video' | null;
 
 export default function AddScreen() {
-    const { isSignedIn, userId, getToken } = useAuth();
+    const { user, uid, getIdToken } = useFirebaseAuth();
     const router = useRouter();
     const { saveContent } = useContent();
     const { getFolders } = useFolders();
@@ -105,15 +105,15 @@ export default function AddScreen() {
         };
     }, []);
 
-    const getOptionalClerkToken = useCallback(async () => {
-        if (!isSignedIn) return undefined;
+    const getOptionalToken = useCallback(async () => {
+        if (!uid) return undefined;
         try {
-            const token = await getToken();
+            const token = await getIdToken();
             return token || undefined;
         } catch {
             return undefined;
         }
-    }, [getToken, isSignedIn]);
+    }, [getIdToken, uid]);
 
     const showToast = (message: string) => {
         if (toastTimer.current) {
@@ -125,14 +125,14 @@ export default function AddScreen() {
 
     const showRemainingSavesToast = useCallback(async () => {
         try {
-            if (!userId) {
+            if (!uid) {
                 showToast('Free plan: 5 saves/day · 20/month. Sign in to save.');
                 return;
             }
-            const profile = await fetchUserProfile(userId);
+            const profile = await fetchUserProfile(uid);
             const planId = profile?.subscription?.planId || 'free';
             const limits = getPlanLimits(planId);
-            const itemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', userId)));
+            const itemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', uid)));
             const now = new Date();
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -160,7 +160,7 @@ export default function AddScreen() {
         } catch (err) {
             console.warn('Toast remaining saves failed', err);
         }
-    }, [userId, showToast]);
+    }, [uid, showToast]);
 
     const handleSelectType = (type: ContentType) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -253,7 +253,7 @@ export default function AddScreen() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
             let analysisResult;
-            const clerkToken = await getOptionalClerkToken();
+            const clerkToken = await getOptionalToken();
 
             if (contentType === 'url') {
                 const metadata = await extractUrlMetadata(url);
@@ -319,7 +319,7 @@ export default function AddScreen() {
             }
             setAiLoading(true);
             let analysisResult;
-            const clerkToken = await getOptionalClerkToken();
+            const clerkToken = await getOptionalToken();
 
             if (contentType === 'url') {
                 const metadata = await extractUrlMetadata(url);
@@ -383,7 +383,7 @@ export default function AddScreen() {
             return;
         }
 
-        if (!isSignedIn) {
+        if (!uid) {
             Alert.alert(
                 'Sign up to save',
                 'Create a free account to save this item.',

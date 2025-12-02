@@ -1,5 +1,5 @@
 // hooks/useContent.ts
-import { useAuth } from '@clerk/clerk-expo';
+import useFirebaseAuth from './useFirebaseAuth';
 import {
     addDoc,
     collection,
@@ -37,7 +37,7 @@ interface SaveContentParams {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function useContent() {
-    const { userId, getToken } = useAuth();
+    const { uid, getIdToken } = useFirebaseAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -46,19 +46,19 @@ export function useContent() {
             setLoading(true);
             setError(null);
 
-            if (!userId) {
+            if (!uid) {
                 throw new Error('User not authenticated');
             }
 
-            console.log('[content] save start', { type: contentData.type, userId });
+            console.log('[content] save start', { type: contentData.type, userId: uid });
 
             // Determine plan and limits
-            const profile = await fetchUserProfile(userId);
+            const profile = await fetchUserProfile(uid);
             const planId = profile?.subscription?.planId || 'free';
             const limits = getPlanLimits(planId);
 
             // Count existing items for limits
-            const allItemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', userId)));
+            const allItemsSnap = await getDocs(query(collection(db, 'items'), where('userId', '==', uid)));
             const now = new Date();
             const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -94,7 +94,7 @@ export function useContent() {
                 let retries = 3;
                 while (retries > 0) {
                     try {
-                        finalFolderId = await getOrCreateFolder(userId, nameToUse);
+                        finalFolderId = await getOrCreateFolder(uid, nameToUse);
                         break;
                     } catch (err) {
                         console.warn('[content] getOrCreateFolder failed, retrying', err);
@@ -108,7 +108,7 @@ export function useContent() {
             // If we still failed to assign a folder, enforce a default
             if (!finalFolderId) {
                 console.warn('[content] No folderId resolved, forcing Unsorted');
-                finalFolderId = await getOrCreateFolder(userId, 'Unsorted');
+                finalFolderId = await getOrCreateFolder(uid, 'Unsorted');
             }
 
             // Handle URL content with timeout
@@ -135,7 +135,7 @@ export function useContent() {
                     try {
                         mediaUrl = await uploadMedia(
                             { uri: contentData.mediaUri, type: `${contentData.type}/jpeg` },
-                            userId
+                            uid
                         );
                         thumbnail = mediaUrl;
                         break;
@@ -155,7 +155,7 @@ export function useContent() {
             while (saveRetries > 0) {
                 try {
                     docRef = await addDoc(collection(db, 'items'), {
-                        userId,
+                        userId: uid,
                         type: contentData.type,
                         url: contentData.url || '',
                         mediaUrl,
@@ -207,26 +207,26 @@ export function useContent() {
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [uid]);
 
     const getContent = useCallback(async (folderId?: string) => {
         try {
             setLoading(true);
             setError(null);
 
-            if (!userId) {
+            if (!uid) {
                 throw new Error('User not authenticated');
             }
 
             const q = folderId
                 ? query(
                     collection(db, 'items'),
-                    where('userId', '==', userId),
+                    where('userId', '==', uid),
                     where('folderId', '==', folderId)
                 )
                 : query(
                     collection(db, 'items'),
-                    where('userId', '==', userId)
+                    where('userId', '==', uid)
                 );
 
             let retries = 3;
@@ -274,14 +274,14 @@ export function useContent() {
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [uid]);
 
     const updateContent = useCallback(async (itemId: string, updates: Partial<SaveContentParams>) => {
         try {
             setLoading(true);
             setError(null);
 
-            if (!userId) {
+            if (!uid) {
                 throw new Error('User not authenticated');
             }
 
@@ -314,14 +314,14 @@ export function useContent() {
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [uid, getIdToken]);
 
     const deleteContent = useCallback(async (itemId: string) => {
         try {
             setLoading(true);
             setError(null);
 
-            if (!userId) {
+            if (!uid) {
                 throw new Error('User not authenticated');
             }
 
@@ -366,7 +366,7 @@ export function useContent() {
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [uid]);
 
     const analyzeContent = useCallback(async (
         type: 'url' | 'image' | 'video',
@@ -376,14 +376,11 @@ export function useContent() {
             setLoading(true);
             setError(null);
 
-            if (!userId) {
+            if (!uid) {
                 throw new Error('User not authenticated');
             }
 
-            const clerkToken = await getToken();
-            if (!clerkToken) {
-                throw new Error('Missing authentication token');
-            }
+            const token = await getIdToken();
 
             let analysisResult;
 
@@ -395,7 +392,7 @@ export function useContent() {
                         metadata,
                         url: urlOrUri
                     },
-                    clerkToken
+                    token || undefined
                 );
             } else if (type === 'image') {
                 const base64 = await imageToBase64(urlOrUri);
@@ -404,7 +401,7 @@ export function useContent() {
                         type: 'image',
                         imageBase64: base64
                     },
-                    clerkToken
+                    token || undefined
                 );
             } else {
                 analysisResult = await analyzeContentWithAI(
@@ -412,7 +409,7 @@ export function useContent() {
                         type: 'video',
                         url: urlOrUri
                     },
-                    clerkToken
+                    token || undefined
                 );
             }
 
@@ -425,7 +422,7 @@ export function useContent() {
         } finally {
             setLoading(false);
         }
-    }, [userId]);
+    }, [uid]);
 
     return {
         saveContent,

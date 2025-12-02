@@ -1,4 +1,3 @@
-import { ClerkLoaded, ClerkProvider } from '@clerk/clerk-expo';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { StripeProvider } from '@stripe/stripe-react-native';
@@ -8,9 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
-import FirebaseAuthSync from '@/components/FirebaseAuthSync';
 import { useColorScheme } from '@/components/useColorScheme';
-import tokenCache from '../lib/tokenCache';
 import { ThemeProvider as AppThemeProvider } from '../contexts/ThemeProvider';
 
 export {
@@ -53,12 +50,6 @@ export default function RootLayout() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const stripeMode = (process.env.EXPO_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
-  const clerkKey =
-    stripeMode === 'live'
-      ? process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY_LIVE ||
-        process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
-      : process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY_TEST ||
-        process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const stripePublishableKey =
     stripeMode === 'live'
       ? process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE || ''
@@ -67,22 +58,17 @@ function RootLayoutNav() {
         '';
 
   return (
-    <ClerkProvider publishableKey={clerkKey || ''} tokenCache={tokenCache}>
-      <ClerkLoaded>
-        <FirebaseAuthSync />
-        <StripeProvider publishableKey={stripePublishableKey}>
-          <AppThemeProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <Stack>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-                <Stack.Screen name="phone-sign-in" options={{ title: 'Phone sign in' }} />
-              </Stack>
-            </ThemeProvider>
-          </AppThemeProvider>
-        </StripeProvider>
-      </ClerkLoaded>
-    </ClerkProvider>
+    <StripeProvider publishableKey={stripePublishableKey}>
+      <AppThemeProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+            <Stack.Screen name="phone-sign-in" options={{ title: 'Phone sign in' }} />
+          </Stack>
+        </ThemeProvider>
+      </AppThemeProvider>
+    </StripeProvider>
   );
 }

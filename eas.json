@@ -19,11 +19,5 @@
       }
     }
   },
-  "submit": {
-    "ios": {
-      "ascAppId": null,
-      "appleTeamId": "F2B5QD97WH"
-    },
-    "android": {}
-  }
+  "submit": {}
 }

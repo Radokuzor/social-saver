@@ -1,5 +1,5 @@
 // app/pricing.tsx
-import { useAuth } from '@clerk/clerk-expo';
+import useFirebaseAuth from '../hooks/useFirebaseAuth';
 import { useNavigation } from 'expo-router';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Check } from 'lucide-react-native';
@@ -100,7 +100,7 @@ const plans: Plan[] = [
 
 export default function PricingScreen() {
   const navigation = useNavigation();
-  const { getToken } = useAuth();
+  const { getIdToken } = useFirebaseAuth();
   const { subscription, isLoading: subscriptionLoading } = useSubscription();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { colors } = useTheme();
@@ -143,7 +143,7 @@ export default function PricingScreen() {
     try {
       setIsProcessing(true);
 
-      const token = await getToken();
+      const token = await getIdToken();
       if (!token) {
         Alert.alert('Sign in required', 'Please sign in to start a subscription.');
         return;

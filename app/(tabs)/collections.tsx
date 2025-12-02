@@ -1,5 +1,4 @@
 // app/(tabs)/collections.tsx
-import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Folder, MoreVertical, Plus } from 'lucide-react-native';
@@ -23,6 +22,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useFolders } from '../../hooks/useFolders';
 import { useContent } from '../../hooks/userContent';
 import { db } from '../../services/firebase';
+import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 
 const { width } = Dimensions.get('window');
 const CARD_MARGIN = 16;
@@ -51,7 +51,7 @@ const folderColors = [
 export default function CollectionsScreen() {
   const { getFolders, createFolder, deleteFolder, subscribeToFolders } = useFolders();
   const { getContent } = useContent();
-  const { isSignedIn, userId } = useAuth();
+  const { user, uid } = useFirebaseAuth();
   const router = useRouter();
   const [folders, setFolders] = useState<any[]>([]);
     const [folderDocs, setFolderDocs] = useState<any[]>([]);
@@ -64,7 +64,7 @@ export default function CollectionsScreen() {
   const longPressingRef = useRef(false);
 
     const loadFolders = useCallback(async () => {
-        if (!isSignedIn) return;
+        if (!uid) return;
         try {
             setLoading(true);
             const [folderData, items] = await Promise.all([
@@ -84,7 +84,7 @@ export default function CollectionsScreen() {
         } finally {
             setLoading(false);
         }
-    }, [isSignedIn, getFolders, getContent]);
+    }, [uid, getFolders, getContent]);
 
     // Merge docs + counts whenever either changes
     useEffect(() => {
@@ -96,7 +96,7 @@ export default function CollectionsScreen() {
     }, [folderDocs, itemCounts]);
 
     useEffect(() => {
-        if (!isSignedIn || !userId) return;
+        if (!uid) return;
 
         if (!hasLoaded) {
             loadFolders().finally(() => setHasLoaded(true));
@@ -108,7 +108,7 @@ export default function CollectionsScreen() {
         // Realtime item counts
         const itemsQuery = query(
             collection(db, 'items'),
-            where('userId', '==', userId)
+            where('userId', '==', uid)
         );
         const unsubItems = onSnapshot(itemsQuery, (snap) => {
             const counts = snap.docs.reduce((acc: Record<string, number>, docSnap) => {
@@ -127,17 +127,17 @@ export default function CollectionsScreen() {
             unsubFolders && unsubFolders();
             unsubItems && unsubItems();
         };
-    }, [isSignedIn, userId, subscribeToFolders, loadFolders, hasLoaded]);
+    }, [uid, subscribeToFolders, loadFolders, hasLoaded]);
 
     const onRefresh = useCallback(async () => {
-        if (!isSignedIn) return;
+        if (!uid) return;
         try {
             setRefreshing(true);
             await loadFolders();
         } finally {
             setRefreshing(false);
         }
-    }, [isSignedIn, loadFolders]);
+    }, [uid, loadFolders]);
 
     const handleCreateFolder = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
