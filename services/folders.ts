@@ -24,6 +24,7 @@ export async function getOrCreateFolder(userId: string, name: string) {
         color: '#fdf2f8',
         icon: 'folder',
         itemCount: 0,
+        isPublic: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
     });

@@ -7,6 +7,7 @@ import {
     ActivityIndicator,
     Alert,
     Dimensions,
+    Image,
     RefreshControl,
     SafeAreaView,
     ScrollView,
@@ -56,6 +57,7 @@ export default function CollectionsScreen() {
   const [folders, setFolders] = useState<any[]>([]);
     const [folderDocs, setFolderDocs] = useState<any[]>([]);
     const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+    const [folderPreviews, setFolderPreviews] = useState<Record<string, string | null>>({});
     const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -77,8 +79,21 @@ export default function CollectionsScreen() {
                 }
                 return acc;
             }, {});
+            const previews = items.reduce((acc: Record<string, { uri: string | null; createdAt: number }>, item: any) => {
+                if (!item.folderId) return acc;
+                const createdAt = item?.createdAt?.toMillis
+                    ? item.createdAt.toMillis()
+                    : new Date(item?.createdAt || Date.now()).getTime();
+                const uri = item.thumbnail || item.mediaUrl || '';
+                const prev = acc[item.folderId];
+                if (!prev || createdAt > prev.createdAt) {
+                    acc[item.folderId] = { uri: uri || null, createdAt };
+                }
+                return acc;
+            }, {});
             setFolderDocs(folderData);
             setItemCounts(counts);
+            setFolderPreviews(Object.fromEntries(Object.entries(previews).map(([id, val]) => [id, val.uri])));
         } catch (err) {
             console.error('Load folders failed', err);
         } finally {
@@ -92,8 +107,9 @@ export default function CollectionsScreen() {
         setFolders(folderDocs.map(f => ({
             ...f,
             itemCount: itemCounts[f.id] || 0,
+            previewUri: folderPreviews[f.id] ?? null,
         })));
-    }, [folderDocs, itemCounts]);
+    }, [folderDocs, itemCounts, folderPreviews]);
 
     useEffect(() => {
         if (!uid) return;
@@ -118,7 +134,21 @@ export default function CollectionsScreen() {
                 }
                 return acc;
             }, {} as Record<string, number>);
+            const previews = snap.docs.reduce((acc: Record<string, { uri: string | null; createdAt: number }>, docSnap) => {
+                const data = docSnap.data() as any;
+                if (!data.folderId) return acc;
+                const createdAt = data?.createdAt?.toMillis
+                    ? data.createdAt.toMillis()
+                    : new Date(data?.createdAt || Date.now()).getTime();
+                const uri = data.thumbnail || data.mediaUrl || '';
+                const prev = acc[data.folderId];
+                if (!prev || createdAt > prev.createdAt) {
+                    acc[data.folderId] = { uri: uri || null, createdAt };
+                }
+                return acc;
+            }, {} as Record<string, { uri: string | null; createdAt: number }>);
             setItemCounts(counts);
+            setFolderPreviews(Object.fromEntries(Object.entries(previews).map(([id, val]) => [id, val.uri])));
         }, (err) => {
             console.error('[collections] items subscribe error', err);
         });
@@ -170,7 +200,7 @@ export default function CollectionsScreen() {
             {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.headerTitle}>Collections</Text>
+                    <Text style={styles.headerTitle}>Inspo Board</Text>
                     <Text style={styles.subtitle}>{folders.length} folders</Text>
                 </View>
 
@@ -305,6 +335,8 @@ function FolderCard({
         );
     };
 
+    const previewUri = folder.previewUri;
+
     return (
         <TouchableOpacity
             style={[styles.card, { backgroundColor: colors.bg, borderColor: colors.border }]}
@@ -316,10 +348,10 @@ function FolderCard({
             onLongPress={handleLongPress}
             delayLongPress={500}
         >
-            {/* Folder Icon */}
+            {/* Folder Icon / Menu */}
             <View style={styles.cardHeader}>
                 <View style={[styles.folderIcon, { backgroundColor: '#ffffff' }]}>
-                    <Folder size={28} color={colors.icon} fill={colors.icon} />
+                    <Folder size={24} color={colors.icon} fill={colors.icon} />
                 </View>
                 <TouchableOpacity
                     style={styles.moreButton}
@@ -333,6 +365,21 @@ function FolderCard({
                 </TouchableOpacity>
             </View>
 
+            {/* Latest content preview */}
+            <View style={[styles.previewContainer, { backgroundColor: colors.border }]}>
+                {previewUri ? (
+                    <Image
+                        source={{ uri: previewUri }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                    />
+                ) : (
+                    <View style={styles.previewPlaceholder}>
+                        <Text style={styles.previewPlaceholderText}>✨</Text>
+                    </View>
+                )}
+            </View>
+
             {/* Folder Info */}
             <View style={styles.cardContent}>
                 <Text style={styles.folderName} numberOfLines={2}>
@@ -341,16 +388,6 @@ function FolderCard({
                 <Text style={styles.itemCount}>
                     {folder.itemCount || 0} {folder.itemCount === 1 ? 'item' : 'items'}
                 </Text>
-            </View>
-
-            {/* Preview Grid (placeholder) */}
-            <View style={styles.previewGrid}>
-                {[1, 2, 3, 4].map((i) => (
-                    <View
-                        key={i}
-                        style={[styles.previewItem, { backgroundColor: colors.border }]}
-                    />
-                ))}
             </View>
         </TouchableOpacity>
     );
@@ -460,9 +497,9 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     folderIcon: {
-        width: 56,
-        height: 56,
-        borderRadius: 14,
+        width: 48,
+        height: 48,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: '#000',
@@ -474,30 +511,39 @@ const styles = StyleSheet.create({
     moreButton: {
         padding: 4,
     },
+    previewContainer: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        height: 140,
+        marginBottom: 12,
+    },
+    previewImage: {
+        width: '100%',
+        height: '100%',
+    },
+    previewPlaceholder: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    previewPlaceholderText: {
+        fontSize: 28,
+        color: Colors.textSecondary,
+    },
     cardContent: {
-        marginBottom: 16,
+        marginTop: 4,
     },
     folderName: {
         fontSize: 18,
         fontWeight: '700',
         color: Colors.text,
-        marginBottom: 6,
+        marginBottom: 4,
         lineHeight: 22,
     },
     itemCount: {
         fontSize: 13,
         color: Colors.textSecondary,
         fontWeight: '600',
-    },
-    previewGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 4,
-    },
-    previewItem: {
-        width: (CARD_WIDTH - 40) / 2 - 2,
-        height: 32,
-        borderRadius: 6,
     },
     emptyState: {
         alignItems: 'center',

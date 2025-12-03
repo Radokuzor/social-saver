@@ -7,7 +7,9 @@ import {
     doc,
     getDoc,
     getDocs,
+    increment,
     query,
+    setDoc,
     updateDoc,
     where,
 } from 'firebase/firestore';
@@ -82,6 +84,7 @@ export function useContent() {
             let mediaUrl = '';
             let thumbnail = contentData.thumbnail || '';
             let finalFolderId = contentData.folderId || null;
+            let folderData: any = null;
 
             // Pick folder with retry logic
             if (!finalFolderId) {
@@ -110,6 +113,10 @@ export function useContent() {
                 console.warn('[content] No folderId resolved, forcing Unsorted');
                 finalFolderId = await getOrCreateFolder(uid, 'Unsorted');
             }
+
+            // Fetch folder data to determine visibility
+            const folderSnap = await getDoc(doc(db, 'folders', finalFolderId));
+            folderData = folderSnap.exists() ? folderSnap.data() : null;
 
             // Handle URL content with timeout
             if (contentData.type === 'url' && contentData.url) {
@@ -183,6 +190,43 @@ export function useContent() {
 
             if (!docRef) {
                 throw new Error('Failed to save content after retries');
+            }
+
+            // Mirror to public collection if folder is public
+            const isPublic = folderData?.isPublic !== false;
+            if (isPublic) {
+                const publicFolderRef = doc(db, 'publicFolders', finalFolderId);
+                await setDoc(
+                    publicFolderRef,
+                    {
+                        ownerUid: uid,
+                        title: folderData?.name || 'Untitled',
+                        description: folderData?.description || '',
+                        tags: folderData?.tags || [],
+                        isPublic: true,
+                        createdAt: folderData?.createdAt || new Date(),
+                        updatedAt: new Date(),
+                        followersCount: folderData?.followersCount || 0,
+                    },
+                    { merge: true }
+                );
+                await setDoc(
+                    doc(publicFolderRef, 'items', docRef.id),
+                    {
+                        userId: uid,
+                        type: contentData.type,
+                        url: contentData.url || '',
+                        mediaUrl,
+                        title: contentData.title,
+                        description: contentData.description,
+                        thumbnail,
+                        tags: contentData.tags,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    },
+                    { merge: true }
+                );
+                await updateDoc(publicFolderRef, { itemsCount: increment(1), updatedAt: new Date() }).catch(() => {});
             }
 
             const remainingDaily = limits.dailySaves && isFinite(limits.dailySaves)

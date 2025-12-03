@@ -1,6 +1,6 @@
 // app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
-import { Compass, FolderOpen, Home, Plus, User } from 'lucide-react-native';
+import { Compass, Home, Plus, Sparkles, User } from 'lucide-react-native';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 
@@ -77,13 +77,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="collections"
         options={{
-          title: 'Collections',
+          title: 'Inspo',
           tabBarIcon: ({ color, focused }) => (
             <View style={[
               styles.iconContainer,
               focused && styles.iconContainerActive
             ]} pointerEvents="none">
-              <FolderOpen
+              <Sparkles
                 size={24}
                 color={color}
                 strokeWidth={focused ? 2.5 : 2}

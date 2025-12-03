@@ -50,6 +50,7 @@ export function useFolders() {
                 color: '#fdf2f8',
                 icon: 'folder',
                 itemCount: 0,
+                isPublic: true,
                 colorIndex: Math.floor(Math.random() * 6), // Random color index 0-5
                 createdAt: new Date(),
                 updatedAt: new Date(),

@@ -2,9 +2,11 @@ import { ResizeMode, Video } from 'expo-av';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useContent } from '../../hooks/userContent';
+import { db } from '../../services/firebase';
 
 const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
@@ -26,6 +28,8 @@ export default function FolderItems() {
   const { getContent } = useContent();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isPublic, setIsPublic] = useState(true);
+  const [savingVisibility, setSavingVisibility] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -42,27 +46,77 @@ export default function FolderItems() {
     load();
   }, [id, getContent]);
 
+  useEffect(() => {
+    const loadFolderMeta = async () => {
+      if (!id) return;
+      try {
+        const snap = await getDoc(doc(db, 'folders', String(id)));
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          setIsPublic(data?.isPublic !== false);
+        }
+      } catch (err) {
+        console.error('Load folder meta failed', err);
+      }
+    };
+    loadFolderMeta();
+  }, [id]);
+
+  const handleToggleVisibility = async (value: boolean) => {
+    if (!id || savingVisibility) return;
+    const prev = isPublic;
+    setIsPublic(value);
+    setSavingVisibility(true);
+    try {
+      await updateDoc(doc(db, 'folders', String(id)), {
+        isPublic: value,
+        updatedAt: new Date(),
+      });
+    } catch (err) {
+      console.error('Update folder visibility failed', err);
+      setIsPublic(prev);
+    } finally {
+      setSavingVisibility(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ title: name ? String(name) : 'Folder' }} />
       {loading ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
-      ) : items.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>No items in this folder</Text>
-        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.contentContainer}>
-          <View style={styles.grid}>
-            {items.map((item, index) => (
-              <Animated.View
-                key={item.id}
-                entering={FadeInDown.delay(index * 100).springify()}
-              >
-                <FolderContentCard item={item} />
-              </Animated.View>
-            ))}
+          <View style={styles.visibilityCard}>
+            <View>
+              <Text style={styles.visibilityLabel}>Folder visibility</Text>
+              <Text style={styles.visibilityHelper}>
+                Public folders are discoverable and new items mirror to the public feed. Private folders stay hidden.
+              </Text>
+            </View>
+            <Switch
+              value={isPublic}
+              onValueChange={handleToggleVisibility}
+              trackColor={{ false: '#d4d4d4', true: Colors.primary }}
+              thumbColor="#ffffff"
+            />
           </View>
+          {items.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No items in this folder</Text>
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {items.map((item, index) => (
+                <Animated.View
+                  key={item.id}
+                  entering={FadeInDown.delay(index * 100).springify()}
+                >
+                  <FolderContentCard item={item} />
+                </Animated.View>
+              ))}
+            </View>
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -129,6 +183,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+  },
+  visibilityCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+  },
+  visibilityLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  visibilityHelper: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    maxWidth: width - (HORIZONTAL_PADDING * 2) - 80,
   },
   emptyState: {
     flex: 1,
