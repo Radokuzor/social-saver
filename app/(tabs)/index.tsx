@@ -25,6 +25,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useContent } from '../../hooks/userContent';
 import { useTheme } from '../../contexts/ThemeProvider';
 import useFirebaseAuth from '../../hooks/useFirebaseAuth';
+import { fetchUserProfile } from '../../services/userProfile';
 
 const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
@@ -43,6 +44,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [profileHandle, setProfileHandle] = useState<string | null>(null);
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -83,8 +85,18 @@ export default function HomeScreen() {
     console.log('[home] 🔄 Auth state changed:', { isSignedIn: !!uid, userId: uid });
     if (uid) {
       loadContent();
+      (async () => {
+        try {
+          const profile = await fetchUserProfile(uid);
+          setProfileHandle(profile?.handle || null);
+        } catch (err) {
+          console.warn('[home] fetch handle failed', err);
+          setProfileHandle(null);
+        }
+      })();
     } else {
       setItems([]);
+      setProfileHandle(null);
     }
   }, [uid, loadContent]);
 
@@ -208,7 +220,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View>
           <Text style={[styles.greeting, { color: colors.text }]}>
-            Hello, {(user?.displayName || user?.email || 'there')} ✨
+            Hello{profileHandle ? `, @${profileHandle}` : ''} ✨
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Your saved content

@@ -381,18 +381,43 @@ export function useContent() {
 
             const itemRef = doc(db, 'items', itemId);
 
-            // Try to cleanup media first (non-blocking)
+            let folderId: string | null = null;
+            let wasPublic = false;
+
+            // Try to cleanup media first (non-blocking) and detect folder/public status
             try {
                 const snap = await getDoc(itemRef);
                 const data = snap.data() as any;
+                folderId = data?.folderId || null;
+
                 if (data?.mediaUrl) {
                     const mediaRef = ref(storage, data.mediaUrl);
                     await deleteObject(mediaRef).catch(err =>
                         console.warn('[content] Media cleanup failed:', err)
                     );
                 }
+
+                if (folderId) {
+                    try {
+                        const folderSnap = await getDoc(doc(db, 'folders', folderId));
+                        wasPublic = folderSnap.exists() ? folderSnap.data()?.isPublic !== false : false;
+                    } catch (folderErr) {
+                        console.warn('[content] folder lookup failed during delete:', folderErr);
+                    }
+                }
             } catch (cleanupErr) {
                 console.warn('[content] Media cleanup skipped:', cleanupErr);
+            }
+
+            // Remove mirrored public copy if needed
+            if (folderId && wasPublic) {
+                const publicFolderRef = doc(db, 'publicFolders', folderId);
+                await deleteDoc(doc(publicFolderRef, 'items', itemId)).catch(err =>
+                    console.warn('[content] public item delete failed:', err)
+                );
+                await updateDoc(publicFolderRef, { itemsCount: increment(-1), updatedAt: new Date() }).catch(err =>
+                    console.warn('[content] public folder count update failed:', err)
+                );
             }
 
             // Delete document with retry

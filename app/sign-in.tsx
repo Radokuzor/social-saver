@@ -16,12 +16,15 @@ import {
   View,
 } from 'react-native';
 import useFirebaseAuth from '../hooks/useFirebaseAuth';
+import { claimHandleAndPhone, ensureHandleAvailable } from '../services/userProfile';
 
 export default function SignInScreen() {
   const router = useRouter();
   const { user, signIn, signUp } = useFirebaseAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [handle, setHandle] = useState('');
+  const [phone, setPhone] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => {
@@ -40,9 +43,26 @@ export default function SignInScreen() {
         router.replace('/(tabs)');
         return;
       } catch (signInErr: any) {
-        console.warn('Sign in failed, trying sign up', signInErr);
-        await signUp(trimmed, password);
-        router.replace('/(tabs)');
+        // Only create an account if the user truly does not exist; otherwise surface the error
+        if (signInErr?.code === 'auth/user-not-found') {
+          const cleanedHandle = handle.trim().replace(/^@/, '');
+          if (!cleanedHandle) {
+            throw new Error('Please choose a unique handle to sign up.');
+          }
+          if (!phone.trim()) {
+            throw new Error('Please provide a phone number to sign up.');
+          }
+
+          await ensureHandleAvailable(cleanedHandle);
+          const newUser = await signUp(trimmed, password, cleanedHandle);
+          await claimHandleAndPhone(newUser?.uid || '', cleanedHandle, phone);
+          router.replace('/(tabs)');
+          return;
+        }
+        if (signInErr?.code === 'auth/wrong-password') {
+          throw new Error('Incorrect password. Please try again or reset your password.');
+        }
+        throw signInErr;
       }
     } catch (err: any) {
       const msg = err?.message || 'Email authentication failed.';
@@ -66,7 +86,11 @@ export default function SignInScreen() {
           >
             <View style={styles.card}>
               <Text style={styles.title}>Sign in or create an account</Text>
-              <Text style={styles.subtitle}>Use your email and password. If you don&apos;t have an account, we&apos;ll create one automatically.</Text>
+              <Text style={styles.subtitle}>
+                Use your email and password. If no account exists, we&apos;ll create one automatically.
+                New accounts require a unique handle and phone number.
+                If you already signed up, just enter your existing password to sign in.
+              </Text>
 
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
@@ -74,6 +98,27 @@ export default function SignInScreen() {
                 <View style={styles.dividerLine} />
               </View>
 
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Handle</Text>
+                <TextInput
+                  style={styles.input}
+                  value={handle}
+                  onChangeText={setHandle}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="@yourhandle"
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Phone number</Text>
+                <TextInput
+                  style={styles.input}
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                  placeholder="555-123-4567"
+                />
+              </View>
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Email</Text>
                 <TextInput

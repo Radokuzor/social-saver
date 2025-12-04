@@ -77,6 +77,57 @@ export function getPlanLimits(planId?: string) {
     return PLAN_LIMITS[planId] || PLAN_LIMITS.free;
 }
 
+export async function claimHandleAndPhone(
+    userId: string,
+    handle: string,
+    phoneNumber: string
+) {
+    if (!userId) throw new Error('Missing user id');
+    const trimmed = (handle || '').trim();
+    const canonical = trimmed.replace(/^@/, '').toLowerCase();
+    if (!canonical) throw new Error('Handle is required');
+    if (!phoneNumber.trim()) throw new Error('Phone number is required');
+
+    // Ensure handle is unique
+    const handlesRef = collection(db, 'users');
+    const q = query(handlesRef, where('handleLower', '==', canonical));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+        const conflict = snap.docs.find((d) => d.id !== userId);
+        if (conflict) {
+            throw new Error('Handle is already taken. Please choose another.');
+        }
+    }
+
+    const userRef = doc(db, 'users', userId);
+    await setDoc(
+        userRef,
+        {
+            handle: trimmed,
+            handleLower: canonical,
+            phoneNumber: phoneNumber.trim(),
+            updatedAt: new Date(),
+        },
+        { merge: true }
+    );
+}
+
+export async function ensureHandleAvailable(handle: string, excludeUserId?: string) {
+    const trimmed = (handle || '').trim();
+    const canonical = trimmed.replace(/^@/, '').toLowerCase();
+    if (!canonical) throw new Error('Handle is required');
+
+    const handlesRef = collection(db, 'users');
+    const q = query(handlesRef, where('handleLower', '==', canonical));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+        const conflict = snap.docs.find((d) => d.id !== excludeUserId);
+        if (conflict) {
+            throw new Error('Handle is already taken. Please choose another.');
+        }
+    }
+}
+
 export async function checkAndIncrementAiUsage(userId: string, planId?: string) {
     if (!userId) return;
     const limits = getPlanLimits(planId);
