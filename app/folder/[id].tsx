@@ -82,7 +82,14 @@ export default function FolderItems() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ title: name ? String(name) : 'Folder' }} />
+      <Stack.Screen
+        options={{
+          title: name ? String(name) : 'Folder',
+          headerBackTitle: 'Back',
+          headerBackTitleVisible: true,
+          headerTintColor: Colors.primary,
+        }}
+      />
       {loading ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
       ) : (
