@@ -114,9 +114,16 @@ export function useContent() {
                 finalFolderId = await getOrCreateFolder(uid, 'Unsorted');
             }
 
-            // Fetch folder data to determine visibility
+            // Fetch folder data to determine visibility and access
             const folderSnap = await getDoc(doc(db, 'folders', finalFolderId));
             folderData = folderSnap.exists() ? folderSnap.data() : null;
+
+            const isOwner = folderData?.userId === uid;
+            const collaboratorIds: string[] = Array.isArray(folderData?.collaborators) ? folderData.collaborators : [];
+            const isCollaborator = collaboratorIds.includes(uid || '');
+            if (!isOwner && !isCollaborator) {
+                throw new Error('You do not have access to save in this folder');
+            }
 
             // Handle URL content with timeout
             if (contentData.type === 'url' && contentData.url) {
@@ -195,11 +202,12 @@ export function useContent() {
             // Mirror to public collection if folder is public
             const isPublic = folderData?.isPublic !== false;
             if (isPublic) {
+                const ownerUid = folderData?.userId || uid;
                 const publicFolderRef = doc(db, 'publicFolders', finalFolderId);
                 await setDoc(
                     publicFolderRef,
                     {
-                        ownerUid: uid,
+                        ownerUid,
                         title: folderData?.name || 'Untitled',
                         description: folderData?.description || '',
                         tags: folderData?.tags || [],
@@ -223,6 +231,8 @@ export function useContent() {
                         tags: contentData.tags,
                         createdAt: new Date(),
                         updatedAt: new Date(),
+                        addedBy: uid,
+                        ownerUid,
                     },
                     { merge: true }
                 );

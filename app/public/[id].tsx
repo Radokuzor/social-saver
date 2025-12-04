@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, Dimensions, Image, SafeAreaView, ScrollView, 
 import { collection, deleteDoc, doc, getDoc, getDocs, increment, limit, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
 import { ResizeMode, Video } from 'expo-av';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import * as WebBrowser from 'expo-web-browser';
+import { useRouter } from 'expo-router';
 import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 import { db } from '../../services/firebase';
 
@@ -34,6 +34,7 @@ interface PublicFolder {
 
 export default function PublicFolderScreen() {
   const { id, title } = useLocalSearchParams();
+  const router = useRouter();
   const { uid } = useFirebaseAuth();
   const [folder, setFolder] = useState<PublicFolder | null>(null);
   const [items, setItems] = useState<any[]>([]);
@@ -215,7 +216,7 @@ export default function PublicFolderScreen() {
                   key={item.id}
                   entering={FadeInDown.delay(index * 80).springify()}
                 >
-                  <PublicItemCard item={item} />
+                  <PublicItemCard item={item} router={router} />
                 </Animated.View>
               ))}
             </View>
@@ -226,7 +227,7 @@ export default function PublicFolderScreen() {
   );
 }
 
-function PublicItemCard({ item }: { item: any }) {
+function PublicItemCard({ item, router }: { item: any; router: ReturnType<typeof useRouter> }) {
   const [videoError, setVideoError] = useState(false);
 
   const isVideo = item.type === 'video';
@@ -234,15 +235,15 @@ function PublicItemCard({ item }: { item: any }) {
   const imageUri = !isVideo ? (item.thumbnail || item.mediaUrl || '') : (item.thumbnail || '');
   const hasVideo = isVideo && !!videoUri && !videoError;
   const hasImage = !isVideo && !!imageUri;
+  const targetUrl = item.url || item.mediaUrl || '';
 
   return (
     <TouchableOpacity
       style={styles.card}
       activeOpacity={0.85}
       onPress={() => {
-        const targetUrl = item.url || item.mediaUrl;
         if (targetUrl) {
-          WebBrowser.openBrowserAsync(targetUrl);
+          router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
         }
       }}
     >

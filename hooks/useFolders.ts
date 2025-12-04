@@ -51,6 +51,7 @@ export function useFolders() {
                 icon: 'folder',
                 itemCount: 0,
                 isPublic: true,
+                collaborators: [],
                 colorIndex: Math.floor(Math.random() * 6), // Random color index 0-5
                 createdAt: new Date(),
                 updatedAt: new Date(),

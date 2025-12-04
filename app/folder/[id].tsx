@@ -1,10 +1,11 @@
 import { ResizeMode, Video } from 'expo-av';
-import { useLocalSearchParams, Stack } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { Menu } from 'lucide-react-native';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, Image, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 import { useContent } from '../../hooks/userContent';
 import { db } from '../../services/firebase';
 
@@ -26,10 +27,21 @@ const Colors = {
 export default function FolderItems() {
   const { id, name } = useLocalSearchParams();
   const { getContent } = useContent();
+  const router = useRouter();
+  const { uid } = useFirebaseAuth();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPublic, setIsPublic] = useState(true);
   const [savingVisibility, setSavingVisibility] = useState(false);
+  const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [ownerHandle, setOwnerHandle] = useState<string | null>(null);
+  const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
+  const [collaborators, setCollaborators] = useState<Array<{ uid: string; handle?: string; email?: string }>>([]);
+  const [collabInput, setCollabInput] = useState('');
+  const [collabLoading, setCollabLoading] = useState(false);
+  const [collabError, setCollabError] = useState<string | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const navigation = useNavigation();
 
   useEffect(() => {
     const load = async () => {
@@ -54,6 +66,16 @@ export default function FolderItems() {
         if (snap.exists()) {
           const data = snap.data() as any;
           setIsPublic(data?.isPublic !== false);
+          setOwnerUid(data?.userId || null);
+          const collabs = Array.isArray(data?.collaborators) ? data.collaborators : [];
+          setCollaboratorIds(collabs);
+          if (data?.userId) {
+            const ownerSnap = await getDoc(doc(db, 'users', data.userId));
+            if (ownerSnap.exists()) {
+              const ownerData = ownerSnap.data() as any;
+              setOwnerHandle(ownerData?.handle || null);
+            }
+          }
         }
       } catch (err) {
         console.error('Load folder meta failed', err);
@@ -61,6 +83,28 @@ export default function FolderItems() {
     };
     loadFolderMeta();
   }, [id]);
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      if (!collaboratorIds.length) {
+        setCollaborators([]);
+        return;
+      }
+      try {
+        const profiles = await Promise.all(
+          collaboratorIds.map(async (cid) => {
+            const snap = await getDoc(doc(db, 'users', cid));
+            const data = snap.exists() ? (snap.data() as any) : null;
+            return { uid: cid, handle: data?.handle, email: data?.email };
+          })
+        );
+        setCollaborators(profiles);
+      } catch (err) {
+        console.error('Load collaborator profiles failed', err);
+      }
+    };
+    loadProfiles();
+  }, [collaboratorIds]);
 
   const handleToggleVisibility = async (value: boolean) => {
     if (!id || savingVisibility) return;
@@ -80,13 +124,91 @@ export default function FolderItems() {
     }
   };
 
+  const isOwner = useMemo(() => uid && ownerUid && uid === ownerUid, [uid, ownerUid]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => setShowMenu((prev) => !prev)}
+          style={{ paddingHorizontal: 10, paddingVertical: 6 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Menu size={20} color={Colors.text} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  const handleAddCollaborator = async () => {
+    if (!id || !isOwner) return;
+    const raw = collabInput.trim();
+    if (!raw) return;
+    setCollabError(null);
+    setCollabLoading(true);
+    try {
+      const normalized = raw.replace(/^@/, '').toLowerCase();
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('handleLower', '==', normalized));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        setCollabError('No user found with that handle');
+        return;
+      }
+      const userDoc = snap.docs[0];
+      const targetUid = userDoc.id;
+      if (targetUid === ownerUid) {
+        setCollabError('You are already the owner');
+        return;
+      }
+      if (collaboratorIds.includes(targetUid)) {
+        setCollabError('Already a collaborator');
+        return;
+      }
+      await updateDoc(doc(db, 'folders', String(id)), {
+        collaborators: arrayUnion(targetUid),
+        updatedAt: new Date(),
+      });
+      setCollaboratorIds((prev) => [...prev, targetUid]);
+      setCollabInput('');
+    } catch (err) {
+      console.error('Add collaborator failed', err);
+      setCollabError('Failed to add collaborator. Try again.');
+    } finally {
+      setCollabLoading(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (targetUid: string) => {
+    if (!id || !isOwner) return;
+    Alert.alert('Remove collaborator', 'They will lose access to edit this board.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await updateDoc(doc(db, 'folders', String(id)), {
+              collaborators: arrayRemove(targetUid),
+              updatedAt: new Date(),
+            });
+            setCollaboratorIds((prev) => prev.filter((c) => c !== targetUid));
+          } catch (err) {
+            console.error('Remove collaborator failed', err);
+            Alert.alert('Error', 'Could not remove collaborator. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
           title: name ? String(name) : 'Folder',
           headerBackTitle: 'Back',
-          headerBackTitleVisible: true,
+          // headerBackTitleVisible: true,
           headerTintColor: Colors.primary,
         }}
       />
@@ -94,20 +216,71 @@ export default function FolderItems() {
         <ActivityIndicator style={{ marginTop: 40 }} color={Colors.primary} />
       ) : (
         <ScrollView contentContainerStyle={styles.contentContainer}>
-          <View style={styles.visibilityCard}>
-            <View>
-              <Text style={styles.visibilityLabel}>Folder visibility</Text>
-              <Text style={styles.visibilityHelper}>
-                Public folders are discoverable and new items mirror to the public feed. Private folders stay hidden.
-              </Text>
-            </View>
-            <Switch
-              value={isPublic}
-              onValueChange={handleToggleVisibility}
-              trackColor={{ false: '#d4d4d4', true: Colors.primary }}
-              thumbColor="#ffffff"
-            />
-          </View>
+          {showMenu ? (
+            <Animated.View entering={FadeInDown.duration(200)} style={{ gap: 10 }}>
+              <View style={styles.visibilityCard}>
+                <View>
+                  <Text style={styles.visibilityLabel}>Folder visibility</Text>
+                  <Text style={styles.visibilityHelper}>
+                    Public folders are discoverable and new items mirror to the public feed. Private folders stay hidden.
+                  </Text>
+                </View>
+                <Switch
+                  value={isPublic}
+                  onValueChange={handleToggleVisibility}
+                  trackColor={{ false: '#d4d4d4', true: Colors.primary }}
+                  thumbColor="#ffffff"
+                />
+              </View>
+              <View style={styles.collabCard}>
+                <View style={{ flex: 1, gap: 6 }}>
+                  <Text style={styles.visibilityLabel}>Collaborators</Text>
+                  <Text style={styles.visibilityHelper}>
+                    Add teammates by @handle. Collaborators can add items; public mirroring still uses this folder.
+                  </Text>
+                  {isOwner ? (
+                    <View style={styles.collabInputRow}>
+                      <TextInput
+                        style={styles.collabInput}
+                        placeholder="@handle"
+                        autoCapitalize="none"
+                        value={collabInput}
+                        onChangeText={setCollabInput}
+                        editable={!collabLoading}
+                      />
+                      <TouchableOpacity
+                        style={[styles.collabAddButton, collabLoading && { opacity: 0.6 }]}
+                        onPress={handleAddCollaborator}
+                        disabled={collabLoading}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.collabAddButtonText}>Add</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                  {collabError ? <Text style={styles.collabError}>{collabError}</Text> : null}
+                  <View style={styles.collabList}>
+                    <View style={styles.collabPill}>
+                      <Text style={styles.collabPillText}>{ownerHandle ? `@${ownerHandle}` : 'Owner'}</Text>
+                      <Text style={styles.collabPillHandle}>{ownerUid === uid ? 'You' : 'Owner'}</Text>
+                    </View>
+                    {collaborators.map((c) => (
+                      <View key={c.uid} style={styles.collabPillRow}>
+                        <View style={styles.collabPill}>
+                          <Text style={styles.collabPillText}>{c.handle ? `@${c.handle}` : 'Collaborator'}</Text>
+                        </View>
+                        {isOwner ? (
+                          <TouchableOpacity onPress={() => handleRemoveCollaborator(c.uid)} style={styles.removeCollabButton}>
+                            <Text style={styles.removeCollabText}>Remove</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            </Animated.View>
+          ) : null}
           {items.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>No items in this folder</Text>
@@ -132,20 +305,22 @@ export default function FolderItems() {
 
 function FolderContentCard({ item }: { item: any }) {
   const [videoError, setVideoError] = useState(false);
+  const router = useRouter();
 
   const isVideo = item.type === 'video';
   const videoUri = isVideo ? (item.mediaUrl || item.url || '') : '';
   const imageUri = !isVideo ? (item.thumbnail || item.mediaUrl || '') : (item.thumbnail || '');
   const hasVideo = isVideo && !!videoUri && !videoError;
   const hasImage = !isVideo && !!imageUri;
+  const targetUrl = item.url || item.mediaUrl || '';
 
   return (
     <TouchableOpacity
       style={styles.card}
       activeOpacity={0.85}
       onPress={() => {
-        if (item.url) {
-          WebBrowser.openBrowserAsync(item.url);
+        if (targetUrl) {
+          router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
         }
       }}
     >
@@ -212,6 +387,79 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 4,
     maxWidth: width - (HORIZONTAL_PADDING * 2) - 80,
+  },
+  collabCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+  },
+  collabInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  collabInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  collabAddButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  collabAddButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  collabError: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  collabList: {
+    gap: 8,
+    marginTop: 8,
+  },
+  collabPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  collabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+  },
+  collabPillText: {
+    color: Colors.text,
+    fontWeight: '700',
+  },
+  collabPillHandle: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  removeCollabButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  removeCollabText: {
+    color: Colors.textSecondary,
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,
