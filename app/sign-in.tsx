@@ -25,6 +25,7 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [handle, setHandle] = useState('');
   const [phone, setPhone] = useState('');
+  const [isSignUp, setIsSignUp] = useState(true);
   const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => {
@@ -35,90 +36,114 @@ export default function SignInScreen() {
 
   const handleEmailAuth = async () => {
     if (!email || !password) return;
+
     try {
       setEmailLoading(true);
       const trimmed = email.trim();
-      try {
-        await signIn(trimmed, password);
-        router.replace('/(tabs)');
-        return;
-      } catch (signInErr: any) {
-        // Only create an account if the user truly does not exist; otherwise surface the error
-        if (signInErr?.code === 'auth/user-not-found') {
-          const cleanedHandle = handle.trim().replace(/^@/, '');
-          if (!cleanedHandle) {
-            throw new Error('Please choose a unique handle to sign up.');
-          }
-          if (!phone.trim()) {
-            throw new Error('Please provide a phone number to sign up.');
-          }
 
-          await ensureHandleAvailable(cleanedHandle);
-          const newUser = await signUp(trimmed, password, cleanedHandle);
-          await claimHandleAndPhone(newUser?.uid || '', cleanedHandle, phone);
+      if (!isSignUp) {
+        // Sign in flow
+        try {
+          await signIn(trimmed, password);
           router.replace('/(tabs)');
           return;
+        } catch (signInErr: any) {
+          if (signInErr?.code === 'auth/user-not-found') {
+            throw new Error('No account found. Switch to "Create Account" to sign up.');
+          }
+          if (signInErr?.code === 'auth/wrong-password') {
+            throw new Error('Incorrect password. Please try again.');
+          }
+          throw signInErr;
         }
-        if (signInErr?.code === 'auth/wrong-password') {
-          throw new Error('Incorrect password. Please try again or reset your password.');
+      } else {
+        // Sign up flow
+        const cleanedHandle = handle.trim().replace(/^@/, '');
+        if (!cleanedHandle) {
+          throw new Error('Please choose a unique handle.');
         }
-        throw signInErr;
+        if (!phone.trim()) {
+          throw new Error('Please provide a phone number.');
+        }
+
+        await ensureHandleAvailable(cleanedHandle);
+        const newUser = await signUp(trimmed, password, cleanedHandle);
+        await claimHandleAndPhone(newUser?.uid || '', cleanedHandle, phone, trimmed);
+        router.replace('/(tabs)');
       }
     } catch (err: any) {
-      const msg = err?.message || 'Email authentication failed.';
-      Alert.alert('Authentication failed', msg);
+      const msg = err?.message || 'Authentication failed.';
+      Alert.alert('Error', msg);
     } finally {
       setEmailLoading(false);
     }
   };
 
+  const toggleMode = () => {
+    setIsSignUp((prev) => !prev);
+    if (isSignUp) {
+      setHandle('');
+      setPhone('');
+    }
+  };
+
+  const submitDisabled =
+    !email ||
+    !password ||
+    emailLoading ||
+    (isSignUp && (!handle.trim() || !phone.trim()));
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView
-          style={{ flex: 1, width: '100%' }}
+          style={styles.keyboardView}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
         >
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <View style={styles.card}>
-              <Text style={styles.title}>Sign in or create an account</Text>
-              <Text style={styles.subtitle}>
-                Use your email and password. If no account exists, we&apos;ll create one automatically.
-                New accounts require a unique handle and phone number.
-                If you already signed up, just enter your existing password to sign in.
+            <View style={styles.header}>
+              <Text style={styles.title}>
+                {isSignUp ? 'Create Account' : 'Welcome Back'}
               </Text>
+              <Text style={styles.subtitle}>
+                {isSignUp ? 'Sign up to get started' : 'Sign in to continue'}
+              </Text>
+            </View>
 
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
+            <View style={styles.card}>
+              {isSignUp ? (
+                <>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Handle</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={handle}
+                      onChangeText={setHandle}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholder="@yourhandle"
+                      placeholderTextColor="#9ca3af"
+                    />
+                  </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Phone</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={phone}
+                      onChangeText={setPhone}
+                      keyboardType="phone-pad"
+                      placeholder="(555) 123-4567"
+                      placeholderTextColor="#9ca3af"
+                    />
+                  </View>
+                </>
+              ) : null}
 
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Handle</Text>
-                <TextInput
-                  style={styles.input}
-                  value={handle}
-                  onChangeText={setHandle}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="@yourhandle"
-                />
-              </View>
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Phone number</Text>
-                <TextInput
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  placeholder="555-123-4567"
-                />
-              </View>
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Email</Text>
                 <TextInput
@@ -129,8 +154,10 @@ export default function SignInScreen() {
                   autoCorrect={false}
                   keyboardType="email-address"
                   placeholder="you@example.com"
+                  placeholderTextColor="#9ca3af"
                 />
               </View>
+
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Password</Text>
                 <TextInput
@@ -138,24 +165,36 @@ export default function SignInScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9ca3af"
                 />
               </View>
+
               <TouchableOpacity
-                style={[styles.button, styles.emailButton, (!email || !password || emailLoading) && styles.disabled]}
+                style={[styles.button, submitDisabled && styles.disabled]}
                 onPress={handleEmailAuth}
-                disabled={!email || !password || emailLoading}
-                activeOpacity={0.85}
+                disabled={submitDisabled}
+                activeOpacity={0.8}
               >
                 {emailLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text style={styles.buttonText}>
-                    Continue with Email
+                    {isSignUp ? 'Create Account' : 'Sign In'}
                   </Text>
                 )}
               </TouchableOpacity>
 
+              <View style={styles.toggleContainer}>
+                <Text style={styles.toggleText}>
+                  {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+                </Text>
+                <TouchableOpacity onPress={toggleMode} activeOpacity={0.7}>
+                  <Text style={styles.toggleLink}>
+                    {isSignUp ? 'Sign In' : 'Create Account'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -167,10 +206,30 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  keyboardView: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
-    backgroundColor: '#f8fafc',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#64748b',
   },
   card: {
     width: '100%',
@@ -178,77 +237,67 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     padding: 24,
     borderRadius: 16,
-    gap: 12,
+    gap: 16,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+    alignSelf: 'center',
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
+  formGroup: {
+    gap: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  input: {
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 16,
     color: '#0f172a',
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#475569',
-    marginBottom: 8,
+    backgroundColor: '#fff',
   },
   button: {
-    paddingVertical: 14,
+    backgroundColor: '#2563eb',
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
+    marginTop: 8,
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   buttonText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
   },
-  phoneButton: {
-    backgroundColor: '#ec4899',
+  disabled: {
+    opacity: 0.5,
+    shadowOpacity: 0,
   },
-  emailButton: {
-    backgroundColor: '#111827',
-  },
-  formGroup: {
-    width: '100%',
-    gap: 6,
-  },
-  label: {
-    fontWeight: '600',
-    color: '#374151',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    color: '#0f172a',
-    backgroundColor: '#fff',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  divider: {
+  toggleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    width: '100%',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e5e7eb',
+  toggleText: {
+    fontSize: 14,
+    color: '#64748b',
   },
-  dividerText: {
-    color: '#6b7280',
-    fontWeight: '600',
-  },
-  disabled: {
-    opacity: 0.6,
+  toggleLink: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2563eb',
   },
 });

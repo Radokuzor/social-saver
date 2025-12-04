@@ -80,7 +80,8 @@ export function getPlanLimits(planId?: string) {
 export async function claimHandleAndPhone(
     userId: string,
     handle: string,
-    phoneNumber: string
+    phoneNumber: string,
+    email?: string
 ) {
     if (!userId) throw new Error('Missing user id');
     const trimmed = (handle || '').trim();
@@ -106,6 +107,7 @@ export async function claimHandleAndPhone(
             handle: trimmed,
             handleLower: canonical,
             phoneNumber: phoneNumber.trim(),
+            email: email || '',
             updatedAt: new Date(),
         },
         { merge: true }

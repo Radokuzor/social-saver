@@ -68,10 +68,21 @@ export function useFolders() {
 
     const deleteFolder = useCallback(async (folderId: string) => {
         if (!userId) throw new Error('User not authenticated');
+        const deletePublicMirror = async () => {
+            try {
+                const publicRef = doc(db, 'publicFolders', folderId);
+                const publicItemsSnap = await getDocs(collection(publicRef, 'items'));
+                await Promise.all(publicItemsSnap.docs.map((d) => deleteDoc(d.ref)));
+                await deleteDoc(publicRef);
+            } catch (err) {
+                console.warn('[folders] delete public mirror failed', err);
+            }
+        };
         try {
             setLoading(true);
             setError(null);
             await deleteDoc(doc(db, 'folders', folderId));
+            await deletePublicMirror();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to delete folder';
             setError(message);

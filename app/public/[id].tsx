@@ -30,6 +30,7 @@ interface PublicFolder {
   ownerUid?: string;
   itemsCount?: number;
   followersCount?: number;
+  isPublic?: boolean;
 }
 
 export default function PublicFolderScreen() {
@@ -170,6 +171,56 @@ export default function PublicFolderScreen() {
     }
   };
 
+  const handleRemovePublicItem = async (itemId: string) => {
+    if (!folder || uid !== folder.ownerUid) return;
+    Alert.alert('Remove from public', 'Hide this item from the public board?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const publicRef = doc(db, 'publicFolders', folder.id);
+            await deleteDoc(doc(publicRef, 'items', itemId));
+            await updateDoc(publicRef, { itemsCount: increment(-1), updatedAt: new Date() }).catch(() => {});
+            setItems((prev) => prev.filter((i) => i.id !== itemId));
+          } catch (err) {
+            console.error('[public folder] remove item failed', err);
+            Alert.alert('Remove failed', 'Could not remove this item from public view.');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleMakePrivate = async () => {
+    if (!folder || uid !== folder.ownerUid) return;
+    Alert.alert('Make private', 'This will remove the board from public discovery. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Yes, make private',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const folderId = folder.id;
+            await updateDoc(doc(db, 'folders', folderId), { isPublic: false, updatedAt: new Date() }).catch(() => {});
+            const publicRef = doc(db, 'publicFolders', folderId);
+            const publicItemsSnap = await getDocs(collection(publicRef, 'items'));
+            await Promise.all(publicItemsSnap.docs.map((d) => deleteDoc(d.ref)));
+            await deleteDoc(publicRef);
+            setItems([]);
+            setFolder((prev) => (prev ? { ...prev, isPublic: false } : prev));
+            Alert.alert('Removed', 'Board is now private.');
+            router.back();
+          } catch (err) {
+            console.error('[public folder] make private failed', err);
+            Alert.alert('Failed', 'Could not update visibility. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen
@@ -202,21 +253,30 @@ export default function PublicFolderScreen() {
                   </Text>
                 </TouchableOpacity>
               ) : null}
+              {folder.ownerUid && uid === folder.ownerUid ? (
+                <TouchableOpacity
+                  style={[styles.followButton, styles.removeButton]}
+                  onPress={handleMakePrivate}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.followButtonText]}>Remove from Public</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
 
           {items.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No items yet</Text>
-            </View>
-          ) : (
+          <Text style={styles.emptyStateText}>No items yet</Text>
+        </View>
+      ) : (
             <View style={styles.grid}>
               {items.map((item, index) => (
                 <Animated.View
                   key={item.id}
                   entering={FadeInDown.delay(index * 80).springify()}
                 >
-                  <PublicItemCard item={item} router={router} />
+                  <PublicItemCard item={item} router={router} onRemove={uid === folder.ownerUid ? handleRemovePublicItem : undefined} />
                 </Animated.View>
               ))}
             </View>
@@ -227,7 +287,7 @@ export default function PublicFolderScreen() {
   );
 }
 
-function PublicItemCard({ item, router }: { item: any; router: ReturnType<typeof useRouter> }) {
+function PublicItemCard({ item, router, onRemove }: { item: any; router: ReturnType<typeof useRouter>; onRemove?: (id: string) => void }) {
   const [videoError, setVideoError] = useState(false);
 
   const isVideo = item.type === 'video';
@@ -246,6 +306,8 @@ function PublicItemCard({ item, router }: { item: any; router: ReturnType<typeof
           router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
         }
       }}
+      onLongPress={() => onRemove?.(item.id)}
+      delayLongPress={400}
     >
       {hasVideo ? (
         <Video
@@ -319,6 +381,10 @@ const styles = StyleSheet.create({
   followButtonText: {
     color: '#fff',
     fontWeight: '700',
+  },
+  removeButton: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
   },
   followingButton: {
     backgroundColor: '#f3f4f6',

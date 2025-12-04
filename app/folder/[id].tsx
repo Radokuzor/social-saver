@@ -26,7 +26,7 @@ const Colors = {
 
 export default function FolderItems() {
   const { id, name } = useLocalSearchParams();
-  const { getContent } = useContent();
+  const { getContent, deleteContent } = useContent();
   const router = useRouter();
   const { uid } = useFirebaseAuth();
   const [items, setItems] = useState<any[]>([]);
@@ -125,6 +125,25 @@ export default function FolderItems() {
   };
 
   const isOwner = useMemo(() => uid && ownerUid && uid === ownerUid, [uid, ownerUid]);
+  const handleDeleteItem = async (itemId: string) => {
+    if (!isOwner) return;
+    Alert.alert('Delete item', 'This will remove it from your board (and public mirror). Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteContent(itemId);
+            setItems((prev) => prev.filter((i) => i.id !== itemId));
+          } catch (err) {
+            console.error('Delete item failed', err);
+            Alert.alert('Delete failed', 'Could not delete this item. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -292,7 +311,7 @@ export default function FolderItems() {
                   key={item.id}
                   entering={FadeInDown.delay(index * 100).springify()}
                 >
-                  <FolderContentCard item={item} />
+                  <FolderContentCard item={item} onDelete={isOwner ? handleDeleteItem : undefined} />
                 </Animated.View>
               ))}
             </View>
@@ -303,7 +322,7 @@ export default function FolderItems() {
   );
 }
 
-function FolderContentCard({ item }: { item: any }) {
+function FolderContentCard({ item, onDelete }: { item: any; onDelete?: (id: string) => void }) {
   const [videoError, setVideoError] = useState(false);
   const router = useRouter();
 
@@ -323,6 +342,8 @@ function FolderContentCard({ item }: { item: any }) {
           router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
         }
       }}
+      onLongPress={() => onDelete?.(item.id)}
+      delayLongPress={400}
     >
       {hasVideo ? (
         <Video
