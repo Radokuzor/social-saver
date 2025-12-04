@@ -2,7 +2,6 @@
 import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { Search } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -192,6 +191,16 @@ export default function HomeScreen() {
     setVisibleIndices(newVisibleIndices);
   }, [items]);
 
+  const handleOpenContent = useCallback(
+    (item: any) => {
+      const targetUrl = item.url || item.mediaUrl || '';
+      if (targetUrl) {
+        router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
+      }
+    },
+    [router],
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" />
@@ -281,7 +290,7 @@ export default function HomeScreen() {
                 <ContentCard
                   item={item}
                   isVisible={visibleIndices.has(index)}
-                  onPress={() => router.push({ pathname: '/item/[id]', params: { id: item.id } })}
+                  onPress={() => handleOpenContent(item)}
                   onLongPress={() => confirmDelete(item.id)}
                   styles={styles}
                   colors={colors}
@@ -355,13 +364,7 @@ function ContentCard({
     <TouchableOpacity
       style={[styles.card, { backgroundColor: colors.background, shadowColor: colors.text }]}
       activeOpacity={0.8}
-      onPress={() => {
-        if (hasVideo) {
-          onPress();
-        } else if (item.url) {
-          WebBrowser.openBrowserAsync(item.url);
-        }
-      }}
+      onPress={onPress}
       onLongPress={onLongPress}
     >
       {hasVideo ? (

@@ -1,10 +1,8 @@
-import { ResizeMode, Video } from 'expo-av';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { fetchTikTokMp4, TikTokVideoResponse } from '../services/video';
 
 const Colors = {
   primary: '#ec4899',
@@ -179,9 +177,6 @@ function detectPlatform(url: string): PlatformData {
 export default function ViewerScreen() {
   const { url, title } = useLocalSearchParams();
   const [webViewError, setWebViewError] = useState(false);
-  const [tiktokVideo, setTikTokVideo] = useState<TikTokVideoResponse | null>(null);
-  const [tiktokLoading, setTikTokLoading] = useState(false);
-  const [tiktokError, setTikTokError] = useState<string | null>(null);
 
   const decodedUrl = useMemo(() => {
     const asString = Array.isArray(url) ? url[0] : url;
@@ -196,47 +191,6 @@ export default function ViewerScreen() {
   const platform = useMemo<PlatformData>(() => {
     return decodedUrl ? detectPlatform(decodedUrl) : { type: 'generic', html: undefined };
   }, [decodedUrl]);
-
-  useEffect(() => {
-    setWebViewError(false);
-  }, [decodedUrl]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (platform.type !== 'tiktok' || !decodedUrl) {
-      setTikTokVideo(null);
-      setTikTokError(null);
-      setTikTokLoading(false);
-      return;
-    }
-
-    const loadMp4 = async () => {
-      try {
-        setTikTokLoading(true);
-        setTikTokError(null);
-        const data = await fetchTikTokMp4(decodedUrl);
-        if (!cancelled) {
-          setTikTokVideo(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('TikTok MP4 fetch failed', err);
-          setTikTokVideo(null);
-          setTikTokError(err instanceof Error ? err.message : 'Unable to load video');
-        }
-      } finally {
-        if (!cancelled) {
-          setTikTokLoading(false);
-        }
-      }
-    };
-
-    loadMp4();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [platform.type, decodedUrl]);
 
   const handleOpenBrowser = async () => {
     if (!decodedUrl) return;
@@ -255,42 +209,6 @@ export default function ViewerScreen() {
       return (
         <View style={styles.loader}>
           <Text style={styles.errorText}>No URL provided</Text>
-        </View>
-      );
-    }
-
-    if (platform.type === 'tiktok' && tiktokLoading) {
-      return (
-        <View style={styles.loader}>
-          <ActivityIndicator color={Colors.primary} />
-          <Text style={styles.loadingText}>Fetching video...</Text>
-        </View>
-      );
-    }
-
-    if (platform.type === 'tiktok' && tiktokVideo?.mp4) {
-      const posterProps = tiktokVideo.thumbnail ? { posterSource: { uri: tiktokVideo.thumbnail }, usePoster: true } : {};
-      return (
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-          <Video
-            source={{ uri: tiktokVideo.mp4 }}
-            style={styles.video}
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay
-            useNativeControls
-            {...posterProps}
-            posterStyle={styles.videoPoster}
-            onError={() => {
-              setTikTokVideo(null);
-              setTikTokError('Unable to play video directly. Falling back to web view.');
-            }}
-          />
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.footerButton} onPress={handleOpenBrowser} activeOpacity={0.85}>
-              <Text style={styles.footerButtonText}>Open in TikTok App</Text>
-            </TouchableOpacity>
-            {tiktokVideo.title ? <Text style={styles.videoTitle}>{tiktokVideo.title}</Text> : null}
-          </View>
         </View>
       );
     }
@@ -315,11 +233,6 @@ export default function ViewerScreen() {
 
     return (
       <View style={{ flex: 1 }}>
-        {platform.type === 'tiktok' && tiktokError ? (
-          <View style={styles.fallbackNotice}>
-            <Text style={styles.fallbackText}>Direct video playback failed. Showing web view.</Text>
-          </View>
-        ) : null}
         <WebView
           source={source}
           startInLoadingState
@@ -342,15 +255,6 @@ export default function ViewerScreen() {
           userAgent={DESKTOP_UA}
         />
 
-        {(platform.type === 'tiktok' || platform.type === 'instagram') && (
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.footerButton} onPress={handleOpenBrowser} activeOpacity={0.85}>
-              <Text style={styles.footerButtonText}>
-                Open in {platform.type === 'tiktok' ? 'TikTok' : 'Instagram'} App
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
     );
   };
@@ -378,12 +282,4 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   openButton: { backgroundColor: Colors.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   openButtonText: { color: '#fff', fontWeight: '700' },
-  video: { flex: 1 },
-  videoPoster: { width: '100%', height: '100%', resizeMode: 'cover', backgroundColor: '#000' },
-  videoTitle: { marginTop: 8, color: Colors.textSecondary, textAlign: 'center' },
-  fallbackNotice: { padding: 12, backgroundColor: '#fef2f2', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.border },
-  fallbackText: { color: '#b91c1c', textAlign: 'center', fontSize: 13 },
-  footer: { backgroundColor: Colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border, padding: 12 },
-  footerButton: { backgroundColor: Colors.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  footerButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
