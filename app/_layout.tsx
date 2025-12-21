@@ -1,6 +1,7 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { StripeProvider } from '@stripe/stripe-react-native';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -57,6 +58,18 @@ function RootLayoutNav() {
       : process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST ||
         process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
         '';
+
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
+    }).catch((err) => console.warn('[audio] setAudioModeAsync failed', err));
+  }, []);
 
   return (
     <StripeProvider publishableKey={stripePublishableKey}>
