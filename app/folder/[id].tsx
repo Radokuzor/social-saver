@@ -325,6 +325,7 @@ export default function FolderItems() {
 function FolderContentCard({ item, onDelete }: { item: any; onDelete?: (id: string) => void }) {
   const [videoError, setVideoError] = useState(false);
   const router = useRouter();
+  const { id: folderRouteId } = useLocalSearchParams();
 
   const isVideo = item.type === 'video';
   const videoUri = isVideo ? (item.mediaUrl || item.url || '') : '';
@@ -332,6 +333,7 @@ function FolderContentCard({ item, onDelete }: { item: any; onDelete?: (id: stri
   const hasVideo = isVideo && !!videoUri && !videoError;
   const hasImage = !isVideo && !!imageUri;
   const targetUrl = item.url || item.mediaUrl || '';
+  const folderParam = item.folderId || (folderRouteId ? String(folderRouteId) : '');
 
   return (
     <TouchableOpacity
@@ -339,7 +341,7 @@ function FolderContentCard({ item, onDelete }: { item: any; onDelete?: (id: stri
       activeOpacity={0.85}
       onPress={() => {
         if (targetUrl) {
-          router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
+          router.push({ pathname: '/viewer', params: { itemId: item.id, folderId: folderParam, url: targetUrl, title: item.title || 'Content' } });
         }
       }}
       onLongPress={() => onDelete?.(item.id)}

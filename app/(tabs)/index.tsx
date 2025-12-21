@@ -230,7 +230,7 @@ export default function HomeScreen() {
       };
 
       void refreshThumbnailIfNeeded();
-      router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
+      router.push({ pathname: '/viewer', params: { itemId: item.id, url: targetUrl, title: item.title || 'Content' } });
     },
     [router, uid, setItems],
   );

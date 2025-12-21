@@ -315,7 +315,10 @@ export default function PublicFolderScreen() {
     };
 
     void refreshThumbnailIfNeeded();
-    router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
+    router.push({
+      pathname: '/viewer',
+      params: { itemId: item.id, publicFolderId: String(id), url: targetUrl, title: item.title || 'Content' },
+    });
   };
 
   const handleRemovePublicItem = async (itemId: string) => {
@@ -457,6 +460,7 @@ export default function PublicFolderScreen() {
                   <PublicItemCard
                     item={item}
                     router={router}
+                    publicFolderId={String(id)}
                     onRemove={uid === folder.ownerUid ? handleRemovePublicItem : undefined}
                     onOpen={handleOpenItem}
                   />
@@ -470,7 +474,19 @@ export default function PublicFolderScreen() {
   );
 }
 
-function PublicItemCard({ item, router, onRemove, onOpen }: { item: any; router: ReturnType<typeof useRouter>; onRemove?: (id: string) => void; onOpen?: (item: any) => void }) {
+function PublicItemCard({
+  item,
+  router,
+  publicFolderId,
+  onRemove,
+  onOpen,
+}: {
+  item: any;
+  router: ReturnType<typeof useRouter>;
+  publicFolderId: string;
+  onRemove?: (id: string) => void;
+  onOpen?: (item: any) => void;
+}) {
   const [videoError, setVideoError] = useState(false);
 
   const isVideo = item.type === 'video';
@@ -490,7 +506,10 @@ function PublicItemCard({ item, router, onRemove, onOpen }: { item: any; router:
           return;
         }
         if (targetUrl) {
-          router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
+          router.push({
+            pathname: '/viewer',
+            params: { itemId: item.id, publicFolderId, url: targetUrl, title: item.title || 'Content' },
+          });
         }
       }}
       onLongPress={() => onRemove?.(item.id)}

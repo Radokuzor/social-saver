@@ -830,34 +830,37 @@ export default function AddScreen() {
                                     {/* Available row */}
                                     <View style={styles.folderRow}>
                                         <Text style={styles.folderRowLabel}>Your folders</Text>
-                                        <ScrollView
-                                            horizontal
-                                            showsHorizontalScrollIndicator={false}
-                                            contentContainerStyle={{ gap: 8 }}
-                                        >
-                                            {uniqueAvailableFolders.map((folder) => (
-                                                <TouchableOpacity
-                                                    key={`avail-${folder}`}
-                                                    style={[
-                                                        styles.folderChip,
-                                                        selectedFolder === folder && styles.folderChipSelected
-                                                    ]}
-                                                    onPress={() => {
-                                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                                        setSelectedFolder(folder);
-                                                    }}
-                                                >
-                                                    <Text style={[
-                                                        styles.folderChipText,
-                                                        selectedFolder === folder && styles.folderChipTextSelected
-                                                    ]}>
-                                                        {folder}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            ))}
+                                        <View style={styles.folderPickerRow}>
+                                            <ScrollView
+                                                horizontal
+                                                showsHorizontalScrollIndicator={false}
+                                                contentContainerStyle={{ gap: 8, paddingRight: 8 }}
+                                                style={styles.folderPickerScroll}
+                                            >
+                                                {uniqueAvailableFolders.map((folder) => (
+                                                    <TouchableOpacity
+                                                        key={`avail-${folder}`}
+                                                        style={[
+                                                            styles.folderChip,
+                                                            selectedFolder === folder && styles.folderChipSelected
+                                                        ]}
+                                                        onPress={() => {
+                                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                                            setSelectedFolder(folder);
+                                                        }}
+                                                    >
+                                                        <Text style={[
+                                                            styles.folderChipText,
+                                                            selectedFolder === folder && styles.folderChipTextSelected
+                                                        ]}>
+                                                            {folder}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </ScrollView>
 
                                             <TouchableOpacity
-                                                style={styles.newFolderButton}
+                                                style={[styles.newFolderButton, styles.newFolderButtonPinned]}
                                                 onPress={() => {
                                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                                     setShowNewFolderInput(true);
@@ -866,7 +869,7 @@ export default function AddScreen() {
                                                 <FolderPlus size={16} color={Colors.primary} />
                                                 <Text style={styles.newFolderText}>New Folder</Text>
                                             </TouchableOpacity>
-                                        </ScrollView>
+                                        </View>
                                     </View>
 
                                     {showNewFolderInput && (
@@ -1163,6 +1166,14 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
         marginLeft: 2,
     },
+    folderPickerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    folderPickerScroll: {
+        flex: 1,
+    },
     folderChip: {
         backgroundColor: Colors.surface,
         paddingHorizontal: 16,
@@ -1193,6 +1204,9 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: Colors.primary,
         borderStyle: 'dashed',
+    },
+    newFolderButtonPinned: {
+        flexShrink: 0,
     },
     newFolderText: {
         fontSize: 14,
