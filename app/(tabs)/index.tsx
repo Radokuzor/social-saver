@@ -26,6 +26,10 @@ import { useContent } from '../../hooks/userContent';
 import { useTheme } from '../../contexts/ThemeProvider';
 import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 import { fetchUserProfile } from '../../services/userProfile';
+import { extractUrlMetadata } from '../../services/metadata';
+import { uploadRemoteImageToStorage } from '../../services/storage';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
@@ -204,13 +208,31 @@ export default function HomeScreen() {
   }, [items]);
 
   const handleOpenContent = useCallback(
-    (item: any) => {
+    async (item: any) => {
       const targetUrl = item.url || item.mediaUrl || '';
-      if (targetUrl) {
-        router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
-      }
+      if (!targetUrl) return;
+
+      const refreshThumbnailIfNeeded = async () => {
+        try {
+          const hasStableThumb = item.thumbnail && item.thumbnail.includes('firebasestorage.googleapis.com');
+          if (hasStableThumb || !item.url) return;
+          const metadata = await extractUrlMetadata(item.url);
+          const candidate = metadata.image || metadata.logo || '';
+          if (!candidate) return;
+          const ownerId = item.userId || uid || 'anonymous';
+          const uploaded = await uploadRemoteImageToStorage(candidate, ownerId);
+          if (!uploaded) return;
+          await updateDoc(doc(db, 'items', item.id), { thumbnail: uploaded, updatedAt: new Date() }).catch(() => {});
+          setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, thumbnail: uploaded } : i)));
+        } catch (err) {
+          console.warn('thumbnail refresh failed', err);
+        }
+      };
+
+      void refreshThumbnailIfNeeded();
+      router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
     },
-    [router],
+    [router, uid, setItems],
   );
 
   return (

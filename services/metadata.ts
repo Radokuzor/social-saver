@@ -5,6 +5,7 @@ export interface UrlMetadata {
     title: string;
     description: string;
     image: string;
+    logo?: string;
     domain: string;
     url: string;
 }

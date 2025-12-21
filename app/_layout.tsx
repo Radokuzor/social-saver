@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeProvider as AppThemeProvider } from '../contexts/ThemeProvider';
+import UpdateGate from '../components/UpdateGate';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -61,12 +62,14 @@ function RootLayoutNav() {
     <StripeProvider publishableKey={stripePublishableKey}>
       <AppThemeProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
-            <Stack.Screen name="phone-sign-in" options={{ title: 'Phone sign in' }} />
-          </Stack>
+          <UpdateGate>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+              <Stack.Screen name="phone-sign-in" options={{ title: 'Phone sign in' }} />
+            </Stack>
+          </UpdateGate>
         </ThemeProvider>
       </AppThemeProvider>
     </StripeProvider>

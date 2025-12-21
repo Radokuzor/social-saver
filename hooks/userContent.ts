@@ -19,7 +19,7 @@ import { analyzeContentWithAI } from '../services/ai';
 import { db, storage } from '../services/firebase';
 import { getOrCreateFolder } from '../services/folders';
 import { extractUrlMetadata } from '../services/metadata';
-import { imageToBase64, uploadMedia } from '../services/storage';
+import { imageToBase64, uploadMedia, uploadRemoteImageToStorage } from '../services/storage';
 import { fetchUserProfile, getPlanLimits } from '../services/userProfile';
 
 interface SaveContentParams {
@@ -162,6 +162,16 @@ export function useContent() {
                 }
             }
 
+            // Upload remote thumbnail to storage for durability
+            const ensureThumbnailUploaded = async (candidate: string): Promise<string> => {
+                const alreadyHosted = candidate && (candidate.includes('firebasestorage.googleapis.com') || candidate.startsWith('gs://'));
+                if (!candidate || alreadyHosted) return candidate;
+                const uploaded = await uploadRemoteImageToStorage(candidate, uid);
+                return uploaded || candidate;
+            };
+
+            thumbnail = await ensureThumbnailUploaded(thumbnail);
+
             // Save to Firestore with retry logic
             let saveRetries = 3;
             let docRef;
@@ -204,20 +214,20 @@ export function useContent() {
             if (isPublic) {
                 const ownerUid = folderData?.userId || uid;
                 const publicFolderRef = doc(db, 'publicFolders', finalFolderId);
-                await setDoc(
-                    publicFolderRef,
-                    {
-                        ownerUid,
-                        title: folderData?.name || 'Untitled',
-                        description: folderData?.description || '',
-                        tags: folderData?.tags || [],
-                        isPublic: true,
-                        createdAt: folderData?.createdAt || new Date(),
-                        updatedAt: new Date(),
-                        followersCount: folderData?.followersCount || 0,
-                    },
-                    { merge: true }
-                );
+                const publicFolderPayload: any = {
+                    ownerUid,
+                    title: folderData?.name || 'Untitled',
+                    description: folderData?.description || '',
+                    tags: folderData?.tags || [],
+                    isPublic: true,
+                    createdAt: folderData?.createdAt || new Date(),
+                    updatedAt: new Date(),
+                    followersCount: folderData?.followersCount || 0,
+                };
+                if (thumbnail) {
+                    publicFolderPayload.previewThumbnail = thumbnail;
+                }
+                await setDoc(publicFolderRef, publicFolderPayload, { merge: true });
                 await setDoc(
                     doc(publicFolderRef, 'items', docRef.id),
                     {

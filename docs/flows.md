@@ -9,7 +9,7 @@
 - Entry points: Add tab, folder view, item pages.
 - Types: URL (with metadata extraction + AI), image upload, video upload.
 - Flow (hooks/useContent):
-  1) Validate limits based on subscription (plan limits from user profile).
+  1) Validate limits based on subscription (currently saves are unlimited; limits kept for future use).
   2) Resolve/ensure folder (getOrCreateFolder); require owner/collaborator access.
   3) Upload media to Storage if needed.
   4) Extract metadata (Microlink/LinkPreview/oEmbed) for URLs.
@@ -33,6 +33,7 @@
 - Public board owner actions:
   - Long-press item: delete from public mirror only (private item stays).
   - “Remove from Public”: set private folder `isPublic=false`, delete public mirror docs/items, remove from discovery.
+- Collaborators: owner can add/remove collaborators (by @handle) on folder detail; collaborators can add items to the folder. Public mirroring follows the folder’s `isPublic` flag regardless of who adds the item.
 
 ## Following
 - Public board screen: follow/unfollow owner.
@@ -51,4 +52,3 @@
 - Content saving and deletion include retry/backoff for Firestore operations.
 - Media cleanup best-effort when deleting items.
 - Handle uniqueness checked before sign-up.
-

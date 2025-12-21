@@ -17,6 +17,7 @@ const Colors = {
 export default function TabLayout() {
   return (
     <Tabs
+      initialRouteName="discovery"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors.primary,

@@ -16,10 +16,11 @@ export const PLAN_LIMITS: Record<string, {
     aiMonthly?: number;
     aiDaily?: number;
 }> = {
-    free: { dailySaves: 5, monthlySaves: 20, aiMonthly: 10, aiDaily: 3 },
-    plus: { monthlySaves: 100, aiMonthly: 25, aiDaily: 10 }, // Basic
-    pro: { monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Better
-    business: { monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Best
+    // Saves are currently unlimited for all plans; AI limits remain per plan.
+    free: { dailySaves: Infinity, monthlySaves: Infinity, aiMonthly: 10, aiDaily: 3 },
+    plus: { dailySaves: Infinity, monthlySaves: Infinity, aiMonthly: 25, aiDaily: 10 }, // Basic
+    pro: { dailySaves: Infinity, monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Better
+    business: { dailySaves: Infinity, monthlySaves: Infinity, aiMonthly: Infinity, aiDaily: Infinity }, // Best
 };
 
 export async function syncClerkUserToFirestore(user: ClerkUserData) {

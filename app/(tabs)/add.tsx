@@ -30,6 +30,8 @@ import { analyzeContentWithAI } from '../../services/ai';
 import { extractUrlMetadata } from '../../services/metadata';
 import { imageToBase64 } from '../../services/storage';
 import { fetchUserProfile, getPlanLimits } from '../../services/userProfile';
+import { downloadForOffline } from '../../services/offlineDownloader';
+import { getLocalDownload, removeLocalDownload } from '../../services/localDownloads';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 
@@ -74,6 +76,9 @@ export default function AddScreen() {
     const [newTag, setNewTag] = useState('');
     const [clipboardPrefill, setClipboardPrefill] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
+    const [offlineRecord, setOfflineRecord] = useState<Awaited<ReturnType<typeof getLocalDownload>>>(null);
+    const [offlineDownloading, setOfflineDownloading] = useState(false);
+    const [offlineProgress, setOfflineProgress] = useState<number | null>(null);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const uniqueAvailableFolders = useMemo(() => Array.from(new Set(availableFolders)), [availableFolders]);
     const uniqueSuggestedFolders = useMemo(() => Array.from(new Set(suggestedFolders)), [suggestedFolders]);
@@ -104,6 +109,28 @@ export default function AddScreen() {
             }
         };
     }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        const urlTrimmed = url.trim();
+        if (contentType !== 'url' || !/^https?:\/\//i.test(urlTrimmed)) {
+            setOfflineRecord(null);
+            return () => {
+                mounted = false;
+            };
+        }
+        (async () => {
+            try {
+                const record = await getLocalDownload(urlTrimmed);
+                if (mounted) setOfflineRecord(record);
+            } catch {
+                if (mounted) setOfflineRecord(null);
+            }
+        })();
+        return () => {
+            mounted = false;
+        };
+    }, [contentType, url]);
 
     const getOptionalToken = useCallback(async () => {
         if (!uid) return undefined;
@@ -189,6 +216,9 @@ export default function AddScreen() {
         setNewFolderName('');
         setNewTag('');
         setClipboardPrefill(false);
+        setOfflineRecord(null);
+        setOfflineDownloading(false);
+        setOfflineProgress(null);
     };
 
     const tryPrefillFromClipboard = async () => {
@@ -378,8 +408,16 @@ export default function AddScreen() {
             return;
         }
 
-        if (!title || !selectedFolder) {
-            Alert.alert('Missing Information', 'Please add a title and select a folder');
+        const hasTitle = Boolean((title || metadataTitle).trim());
+        const hasFolder = Boolean(selectedFolder?.trim());
+        if (!hasTitle || !hasFolder) {
+            const message =
+                !hasTitle && !hasFolder
+                    ? 'Please add a title and select a folder.'
+                    : !hasTitle
+                      ? 'Please add a title.'
+                      : 'Please select a folder.';
+            Alert.alert('Missing Information', message);
             return;
         }
 
@@ -600,10 +638,11 @@ export default function AddScreen() {
                                 <View style={styles.formGroup}>
                                     <Text style={styles.label}>Title</Text>
                                     <TextInput
-                                        style={styles.textInput}
+                                        style={[styles.textInput, styles.textInputTitle]}
                                         value={title}
                                         onChangeText={setTitle}
                                         multiline
+                                        numberOfLines={2}
                                     />
                                 </View>
 
@@ -797,6 +836,69 @@ export default function AddScreen() {
                                     )}
                                 </TouchableOpacity>
 
+                                {contentType === 'url' && /^https?:\/\//i.test(url.trim()) ? (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.secondaryButton,
+                                            (offlineDownloading || !!offlineRecord) && styles.buttonDisabled,
+                                        ]}
+                                        onPress={async () => {
+                                            const urlTrimmed = url.trim();
+                                            if (!urlTrimmed) return;
+                                            try {
+                                                setOfflineDownloading(true);
+                                                setOfflineProgress(0);
+                                                const token = uid ? await getIdToken() : null;
+                                                await downloadForOffline({
+                                                    sourceUrl: urlTrimmed,
+                                                    firebaseIdToken: token || undefined,
+                                                    onProgress: (p) => setOfflineProgress(p),
+                                                });
+                                                const record = await getLocalDownload(urlTrimmed);
+                                                setOfflineRecord(record);
+                                                showToast('Downloaded for offline playback');
+                                            } catch (err: any) {
+                                                Alert.alert('Download failed', err?.message || 'Could not download this content.');
+                                            } finally {
+                                                setOfflineDownloading(false);
+                                                setOfflineProgress(null);
+                                            }
+                                        }}
+                                        disabled={offlineDownloading || !!offlineRecord}
+                                    >
+                                        <Text style={styles.secondaryButtonText}>
+                                            {offlineDownloading
+                                                ? `Downloading${offlineProgress !== null ? ` (${Math.round(offlineProgress * 100)}%)` : ''}…`
+                                                : offlineRecord
+                                                    ? 'Downloaded'
+                                                    : 'Download for Offline'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ) : null}
+
+                                {contentType === 'url' && offlineRecord ? (
+                                    <TouchableOpacity
+                                        style={[styles.secondaryButton, styles.dangerButton, offlineDownloading && styles.buttonDisabled]}
+                                        onPress={async () => {
+                                            const urlTrimmed = url.trim();
+                                            if (!urlTrimmed) return;
+                                            try {
+                                                setOfflineDownloading(true);
+                                                await removeLocalDownload(urlTrimmed);
+                                                setOfflineRecord(null);
+                                                showToast('Removed offline download');
+                                            } catch (err: any) {
+                                                Alert.alert('Remove failed', err?.message || 'Could not remove this download.');
+                                            } finally {
+                                                setOfflineDownloading(false);
+                                            }
+                                        }}
+                                        disabled={offlineDownloading}
+                                    >
+                                        <Text style={styles.secondaryButtonText}>Remove Offline Download</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+
                             </Animated.View>
                         )}
                     </Animated.View>
@@ -945,8 +1047,12 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: Colors.text,
     },
+    textInputTitle: {
+        maxHeight: 90,
+    },
     textArea: {
         minHeight: 100,
+        maxHeight: 180,
         textAlignVertical: 'top',
     },
     tagsContainer: {
@@ -1105,5 +1211,25 @@ const styles = StyleSheet.create({
         color: '#ffffff',
         fontSize: 16,
         fontWeight: '700',
+    },
+    secondaryButton: {
+        backgroundColor: Colors.surface,
+        borderRadius: 16,
+        padding: 18,
+        alignItems: 'center',
+        marginTop: 12,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    secondaryButtonText: {
+        color: Colors.text,
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    dangerButton: {
+        borderColor: '#fecaca',
+    },
+    buttonDisabled: {
+        opacity: 0.6,
     },
 });

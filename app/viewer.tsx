@@ -1,8 +1,12 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
+import { ResizeMode, Video } from 'expo-av';
 import * as WebBrowser from 'expo-web-browser';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Image, Linking, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import useFirebaseAuth from '../hooks/useFirebaseAuth';
+import { getLocalDownload, removeLocalDownload } from '../services/localDownloads';
+import { downloadForOffline } from '../services/offlineDownloader';
 
 const Colors = {
   primary: '#ec4899',
@@ -177,6 +181,12 @@ function detectPlatform(url: string): PlatformData {
 export default function ViewerScreen() {
   const { url, title } = useLocalSearchParams();
   const [webViewError, setWebViewError] = useState(false);
+  const { uid, getIdToken } = useFirebaseAuth();
+  const [localDownload, setLocalDownload] = useState<Awaited<ReturnType<typeof getLocalDownload>>>(null);
+  const [checkingLocal, setCheckingLocal] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [preferWeb, setPreferWeb] = useState(false);
 
   const decodedUrl = useMemo(() => {
     const asString = Array.isArray(url) ? url[0] : url;
@@ -188,15 +198,80 @@ export default function ViewerScreen() {
     }
   }, [url]);
 
+  const normalizedUrl = useMemo(() => decodedUrl?.trim() || null, [decodedUrl]);
+
   const platform = useMemo<PlatformData>(() => {
-    return decodedUrl ? detectPlatform(decodedUrl) : { type: 'generic', html: undefined };
-  }, [decodedUrl]);
+    return normalizedUrl ? detectPlatform(normalizedUrl) : { type: 'generic', html: undefined };
+  }, [normalizedUrl]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!normalizedUrl) {
+        if (mounted) setLocalDownload(null);
+        return;
+      }
+      setCheckingLocal(true);
+      try {
+        const record = await getLocalDownload(normalizedUrl);
+        if (mounted) {
+          setLocalDownload(record);
+          setPreferWeb(false);
+        }
+      } finally {
+        if (mounted) setCheckingLocal(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [normalizedUrl]);
+
+  const handleDownload = useCallback(async () => {
+    if (!normalizedUrl) return;
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+
+      const token = uid ? await getIdToken() : null;
+      const result = await downloadForOffline({
+        sourceUrl: normalizedUrl,
+        firebaseIdToken: token || undefined,
+        onProgress: (p) => setDownloadProgress(p),
+      });
+
+      setLocalDownload({
+        sourceUrl: normalizedUrl,
+        localUri: result.localUri,
+        mediaType: result.mediaType,
+        createdAt: Date.now(),
+      });
+      setPreferWeb(false);
+      Alert.alert('Downloaded', 'Saved for offline playback in the app.');
+    } catch (err: any) {
+      Alert.alert('Download failed', err?.message || 'Could not download this content.');
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(null);
+    }
+  }, [getIdToken, normalizedUrl, uid]);
+
+  const handleDeleteDownload = useCallback(async () => {
+    if (!normalizedUrl) return;
+    try {
+      await removeLocalDownload(normalizedUrl);
+      setLocalDownload(null);
+      setPreferWeb(true);
+    } catch (err: any) {
+      Alert.alert('Remove failed', err?.message || 'Could not remove this download.');
+    }
+  }, [normalizedUrl]);
 
   const handleOpenBrowser = async () => {
-    if (!decodedUrl) return;
-    Linking.openURL(decodedUrl).catch(async (err) => {
+    if (!normalizedUrl) return;
+    Linking.openURL(normalizedUrl).catch(async (err) => {
       console.error('Failed to open URL natively, falling back to WebBrowser:', err);
-      await WebBrowser.openBrowserAsync(decodedUrl, {
+      await WebBrowser.openBrowserAsync(normalizedUrl, {
         controlsColor: Colors.primary,
         toolbarColor: Colors.background,
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
@@ -205,13 +280,16 @@ export default function ViewerScreen() {
   };
 
   const renderContent = () => {
-    if (!decodedUrl) {
+    if (!normalizedUrl) {
       return (
         <View style={styles.loader}>
           <Text style={styles.errorText}>No URL provided</Text>
         </View>
       );
     }
+
+    const canPlayLocal = !!localDownload?.localUri && (localDownload.mediaType === 'video' || localDownload.mediaType === 'image');
+    const shouldShowDownload = normalizedUrl.startsWith('http') && !localDownload && !checkingLocal;
 
     if (webViewError) {
       return (
@@ -227,12 +305,77 @@ export default function ViewerScreen() {
       );
     }
 
+    if (canPlayLocal && !preferWeb) {
+      return (
+        <View style={{ flex: 1 }}>
+          <View style={styles.actionBar}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, downloading ? styles.buttonDisabled : null]}
+              onPress={() => setPreferWeb(true)}
+              disabled={downloading}
+            >
+              <Text style={styles.secondaryButtonText}>Open Web</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryButton, downloading ? styles.buttonDisabled : null]}
+              onPress={handleDeleteDownload}
+              disabled={downloading}
+            >
+              <Text style={styles.secondaryButtonText}>Remove Download</Text>
+            </TouchableOpacity>
+          </View>
+          {localDownload?.mediaType === 'video' ? (
+            <Video
+              source={{ uri: localDownload.localUri }}
+              style={{ flex: 1, backgroundColor: '#000' }}
+              resizeMode={ResizeMode.CONTAIN}
+              useNativeControls
+            />
+          ) : (
+            <View style={{ flex: 1, backgroundColor: '#000' }}>
+              <Image source={{ uri: localDownload!.localUri }} style={{ flex: 1 }} resizeMode="contain" />
+            </View>
+          )}
+        </View>
+      );
+    }
+
     const source = platform.html
       ? { html: platform.html, baseUrl: platform.type === 'tiktok' ? 'https://www.tiktok.com' : 'https://www.instagram.com' }
-      : { uri: decodedUrl };
+      : { uri: normalizedUrl };
 
     return (
       <View style={{ flex: 1 }}>
+        {(shouldShowDownload || canPlayLocal) && !webViewError ? (
+          <View style={styles.actionBar}>
+            {shouldShowDownload ? (
+              <TouchableOpacity
+                style={[styles.secondaryButton, (downloading || checkingLocal || !!localDownload) ? styles.buttonDisabled : null]}
+                onPress={handleDownload}
+                disabled={downloading || checkingLocal || !!localDownload}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {downloading
+                    ? `Downloading${downloadProgress !== null ? ` (${Math.round(downloadProgress * 100)}%)` : ''}…`
+                    : checkingLocal
+                      ? 'Checking…'
+                      : localDownload
+                        ? 'Downloaded'
+                        : 'Download'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {canPlayLocal ? (
+              <TouchableOpacity
+                style={[styles.secondaryButton, downloading ? styles.buttonDisabled : null]}
+                onPress={() => setPreferWeb(false)}
+                disabled={downloading}
+              >
+                <Text style={styles.secondaryButtonText}>Play Local</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
         <WebView
           source={source}
           startInLoadingState
@@ -282,4 +425,23 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   openButton: { backgroundColor: Colors.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   openButtonText: { color: '#fff', fontWeight: '700' },
+  actionBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  secondaryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  secondaryButtonText: { color: Colors.text, fontWeight: '700', fontSize: 13 },
+  buttonDisabled: { opacity: 0.6 },
 });

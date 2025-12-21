@@ -7,6 +7,9 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import useFirebaseAuth from '../../hooks/useFirebaseAuth';
 import { db } from '../../services/firebase';
+import { extractUrlMetadata } from '../../services/metadata';
+import { uploadRemoteImageToStorage } from '../../services/storage';
+import { ChevronDown, ChevronUp } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
 const HORIZONTAL_PADDING = 16;
@@ -31,6 +34,10 @@ interface PublicFolder {
   itemsCount?: number;
   followersCount?: number;
   isPublic?: boolean;
+  previewThumbnail?: string | null;
+  voteScore?: number;
+  upvotes?: number;
+  downvotes?: number;
 }
 
 export default function PublicFolderScreen() {
@@ -43,6 +50,10 @@ export default function PublicFolderScreen() {
   const [handle, setHandle] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [voteScore, setVoteScore] = useState(0);
+  const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
+  const [voteLoading, setVoteLoading] = useState(false);
+  const formattedTitle = folder?.title ? capitalizeFolderName(folder.title) : (title as string) || 'Inspo Board';
 
   const ensureOwner = useCallback(async (itemList: any[] = []) => {
     if (folder?.ownerUid) return folder.ownerUid;
@@ -80,6 +91,10 @@ export default function PublicFolderScreen() {
         if (folderSnap.exists()) {
           const data = folderSnap.data() as any;
           setFolder({ ...(data as PublicFolder), id: folderSnap.id });
+          const scoreFromDoc = typeof data.voteScore === 'number'
+            ? data.voteScore
+            : (data.upvotes || 0) - (data.downvotes || 0);
+          setVoteScore(scoreFromDoc);
         }
       } catch (err) {
         console.error('[public folder] load failed', err);
@@ -137,10 +152,37 @@ export default function PublicFolderScreen() {
     void fetchOwnerMeta();
   }, [folder?.ownerUid, uid]);
 
+  useEffect(() => {
+    const fetchUserVote = async () => {
+      if (!folder?.id || !uid) {
+        setUserVote(0);
+        return;
+      }
+      try {
+        const voteSnap = await getDoc(doc(db, 'publicFolders', folder.id, 'votes', uid));
+        if (voteSnap.exists()) {
+          const value = (voteSnap.data() as any)?.value;
+          if (value === 1 || value === -1) {
+            setUserVote(value);
+          } else {
+            setUserVote(0);
+          }
+        } else {
+          setUserVote(0);
+        }
+      } catch (err) {
+        console.error('[public folder] fetch vote failed', err);
+      }
+    };
+    void fetchUserVote();
+  }, [folder?.id, uid]);
+
   const handleFollowToggle = async () => {
     if (!folder?.ownerUid || uid === folder.ownerUid) return;
     if (!uid) {
-      Alert.alert('Sign in to follow', 'Create an account or log in to follow this creator.');
+      Alert.alert('Sign in to follow', 'Create an account or log in to follow this creator.', [
+        { text: 'OK', onPress: () => router.push('/sign-in') },
+      ]);
       return;
     }
     if (followLoading) return;
@@ -169,6 +211,111 @@ export default function PublicFolderScreen() {
     } finally {
       setFollowLoading(false);
     }
+  };
+
+  const handleVote = async (value: 1 | -1) => {
+    if (!folder) return;
+    if (!uid) {
+      Alert.alert('Sign in to vote', 'Create an account or log in to vote on this inspo board.', [
+        { text: 'OK', onPress: () => router.push('/sign-in') },
+      ]);
+      return;
+    }
+    if (voteLoading) return;
+
+    const prevVote = userVote;
+    const nextVote = prevVote === value ? 0 : value;
+
+    // Remove the previous vote, then apply the new one to keep counts accurate
+    let upDelta = 0;
+    let downDelta = 0;
+    if (prevVote === 1) upDelta -= 1;
+    if (prevVote === -1) downDelta -= 1;
+    if (nextVote === 1) upDelta += 1;
+    if (nextVote === -1) downDelta += 1;
+
+    const scoreDelta = nextVote - prevVote;
+
+    setVoteLoading(true);
+    // Optimistically update UI so the buttons feel responsive.
+    setUserVote(nextVote);
+    setVoteScore((prevScore) => prevScore + scoreDelta);
+    setFolder((prevFolder) =>
+      prevFolder
+        ? {
+            ...prevFolder,
+            upvotes: (prevFolder.upvotes || 0) + upDelta,
+            downvotes: (prevFolder.downvotes || 0) + downDelta,
+            voteScore: (prevFolder.voteScore || 0) + scoreDelta,
+          }
+        : prevFolder
+    );
+
+    try {
+      const folderRef = doc(db, 'publicFolders', folder.id);
+      const voteRef = doc(folderRef, 'votes', uid);
+
+      await updateDoc(folderRef, {
+        voteScore: increment(scoreDelta),
+        upvotes: increment(upDelta),
+        downvotes: increment(downDelta),
+      });
+
+      if (nextVote === 0) {
+        await deleteDoc(voteRef);
+      } else {
+        await setDoc(voteRef, { value: nextVote, updatedAt: new Date() });
+      }
+    } catch (err) {
+      console.error('[public folder] vote failed', err);
+      setUserVote(prevVote);
+      setVoteScore((prevScore) => prevScore - scoreDelta);
+      setFolder((prevFolder) =>
+        prevFolder
+          ? {
+              ...prevFolder,
+              upvotes: (prevFolder.upvotes || 0) - upDelta,
+              downvotes: (prevFolder.downvotes || 0) - downDelta,
+              voteScore: (prevFolder.voteScore || 0) - scoreDelta,
+            }
+          : prevFolder
+      );
+      Alert.alert('Vote failed', 'Please try again in a moment.');
+    } finally {
+      setVoteLoading(false);
+    }
+  };
+
+  const handleOpenItem = async (item: any) => {
+    const targetUrl = item.url || item.mediaUrl || '';
+    if (!targetUrl) return;
+
+    const refreshThumbnailIfNeeded = async () => {
+      try {
+        const hasStableThumb = item.thumbnail && item.thumbnail.includes('firebasestorage.googleapis.com');
+        if (hasStableThumb || !item.url) return;
+        const metadata = await extractUrlMetadata(item.url);
+        const candidate = metadata.image || metadata.logo || '';
+        if (!candidate) return;
+        // Upload under the current viewer to avoid owner-only storage permissions
+        const uploaderId = uid || item.ownerUid || item.userId || folder?.ownerUid || 'anonymous';
+        const uploaded = await uploadRemoteImageToStorage(candidate, uploaderId);
+        if (!uploaded) return;
+        // Update local UI immediately
+        setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, thumbnail: uploaded } : i)));
+        setFolder((prev) => (prev ? { ...prev, previewThumbnail: uploaded } : prev));
+
+        // Best-effort persistence; may fail for non-owners depending on rules
+        await updateDoc(doc(db, 'publicFolders', String(id), 'items', item.id), { thumbnail: uploaded, updatedAt: new Date() }).catch(() => {});
+        await updateDoc(doc(db, 'items', item.id), { thumbnail: uploaded, updatedAt: new Date() }).catch(() => {});
+        await updateDoc(doc(db, 'publicFolders', String(id)), { previewThumbnail: uploaded, updatedAt: new Date() }).catch(() => {});
+      } catch (err) {
+        console.warn('[public folder] thumbnail refresh failed', err);
+      }
+    };
+
+    void refreshThumbnailIfNeeded();
+    router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
   };
 
   const handleRemovePublicItem = async (itemId: string) => {
@@ -225,7 +372,7 @@ export default function PublicFolderScreen() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
-          title: (title as string) || 'Inspo Board',
+          title: formattedTitle,
           headerBackTitle: 'Back',
           headerTintColor: Colors.primary,
         }}
@@ -240,7 +387,7 @@ export default function PublicFolderScreen() {
         <ScrollView contentContainerStyle={styles.contentContainer}>
           <View style={styles.header}>
             <View style={styles.creatorRow}>
-              <Text style={styles.handle}>{handle ? `@${handle}` : 'Creator'}</Text>
+              <Text style={styles.handle}>{handle ? `${formattedTitle} by @${handle}` : formattedTitle}</Text>
               {folder.ownerUid && uid !== folder.ownerUid ? (
                 <TouchableOpacity
                   style={[styles.followButton, isFollowing && styles.followingButton]}
@@ -253,6 +400,37 @@ export default function PublicFolderScreen() {
                   </Text>
                 </TouchableOpacity>
               ) : null}
+              <View style={styles.voteGroup}>
+                <TouchableOpacity
+                  style={[
+                    styles.voteButton,
+                    userVote === 1 && styles.voteButtonActiveUp,
+                  ]}
+                  onPress={() => handleVote(1)}
+                  disabled={voteLoading}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <View pointerEvents="none">
+                    <ChevronUp size={18} color={userVote === 1 ? '#16a34a' : '#22c55e'} strokeWidth={2.5} />
+                  </View>
+                </TouchableOpacity>
+                <Text style={styles.voteCount}>{voteScore}</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.voteButton,
+                    userVote === -1 && styles.voteButtonActiveDown,
+                  ]}
+                  onPress={() => handleVote(-1)}
+                  disabled={voteLoading}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <View pointerEvents="none">
+                    <ChevronDown size={18} color={userVote === -1 ? '#dc2626' : '#ef4444'} strokeWidth={2.5} />
+                  </View>
+                </TouchableOpacity>
+              </View>
               {folder.ownerUid && uid === folder.ownerUid ? (
                 <TouchableOpacity
                   style={[styles.followButton, styles.removeButton]}
@@ -276,7 +454,12 @@ export default function PublicFolderScreen() {
                   key={item.id}
                   entering={FadeInDown.delay(index * 80).springify()}
                 >
-                  <PublicItemCard item={item} router={router} onRemove={uid === folder.ownerUid ? handleRemovePublicItem : undefined} />
+                  <PublicItemCard
+                    item={item}
+                    router={router}
+                    onRemove={uid === folder.ownerUid ? handleRemovePublicItem : undefined}
+                    onOpen={handleOpenItem}
+                  />
                 </Animated.View>
               ))}
             </View>
@@ -287,7 +470,7 @@ export default function PublicFolderScreen() {
   );
 }
 
-function PublicItemCard({ item, router, onRemove }: { item: any; router: ReturnType<typeof useRouter>; onRemove?: (id: string) => void }) {
+function PublicItemCard({ item, router, onRemove, onOpen }: { item: any; router: ReturnType<typeof useRouter>; onRemove?: (id: string) => void; onOpen?: (item: any) => void }) {
   const [videoError, setVideoError] = useState(false);
 
   const isVideo = item.type === 'video';
@@ -302,6 +485,10 @@ function PublicItemCard({ item, router, onRemove }: { item: any; router: ReturnT
       style={styles.card}
       activeOpacity={0.85}
       onPress={() => {
+        if (onOpen) {
+          onOpen(item);
+          return;
+        }
         if (targetUrl) {
           router.push({ pathname: '/viewer', params: { url: targetUrl, title: item.title || 'Content' } });
         }
@@ -394,6 +581,35 @@ const styles = StyleSheet.create({
   followingButtonText: {
     color: Colors.text,
   },
+  voteGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  voteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  voteButtonActiveUp: {
+    borderColor: '#22c55e',
+    backgroundColor: '#f0fdf4',
+  },
+  voteButtonActiveDown: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
+  },
+  voteCount: {
+    minWidth: 28,
+    textAlign: 'center',
+    fontWeight: '700',
+    color: Colors.text,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -446,3 +662,8 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
 });
+
+function capitalizeFolderName(name: string) {
+  if (!name) return '';
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}

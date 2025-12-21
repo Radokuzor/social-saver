@@ -1,11 +1,10 @@
-import { useLocalSearchParams, Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import { ResizeMode, Video } from 'expo-av';
-import { Image } from 'react-native';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { doc, getDoc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { db } from '../../services/firebase';
 
 const Colors = {
   primary: '#ec4899',
@@ -86,6 +85,7 @@ export default function ItemDetail() {
       <View style={styles.content}>
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.description}>{item.description}</Text>
+
         {item.url ? (
           <TouchableOpacity style={styles.linkButton} onPress={() => WebBrowser.openBrowserAsync(item.url)}>
             <Text style={styles.linkText}>Open Link</Text>

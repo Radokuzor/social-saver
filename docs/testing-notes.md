@@ -6,13 +6,13 @@
 - Verify handle shows on home greeting.
 
 ## Content Save & View
-- Save URL (TikTok/Instagram/generic) and verify metadata/thumbnail.
+- Save URL (TikTok/Instagram/generic) and verify metadata/thumbnail. Saves are currently unlimited (no plan wall).
 - Save image upload and video upload; confirm Storage link and playback preview.
 - Search on home filters by title/description/tags.
 - Open viewer for TikTok/Instagram: embeds render; “open in app” only on error.
 
 ## Folders & Public Boards
-- Create folder; toggle public/private; add collaborator.
+- Create folder; toggle public/private; add/remove collaborators (owner only).
 - Save item to public folder -> appears in private view and public board.
 - Long-press item in private folder (as owner) -> deleted in both private + public mirrors; media cleaned.
 - Delete folder from collections -> public mirror removed.

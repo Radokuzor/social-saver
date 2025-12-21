@@ -383,7 +383,7 @@ function FolderCard({
             {/* Folder Info */}
             <View style={styles.cardContent}>
                 <Text style={styles.folderName} numberOfLines={2}>
-                    {folder.name}
+                    {capitalizeFolderName(folder.name)}
                 </Text>
                 <Text style={styles.itemCount}>
                     {folder.itemCount || 0} {folder.itemCount === 1 ? 'item' : 'items'}
@@ -391,6 +391,11 @@ function FolderCard({
             </View>
         </TouchableOpacity>
     );
+}
+
+function capitalizeFolderName(name: string) {
+    if (!name) return '';
+    return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 const styles = StyleSheet.create({

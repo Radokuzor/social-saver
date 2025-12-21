@@ -1,7 +1,7 @@
 // app/(tabs)/discovery.tsx
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, Image, RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { collection, getDocs, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, getDoc, getDocs, doc, limit, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { db } from '../../services/firebase';
@@ -37,6 +37,9 @@ interface PublicFolder {
   tags?: string[];
   itemsCount?: number;
   updatedAt?: any;
+  ownerUid?: string;
+  ownerHandle?: string | null;
+  previewThumbnail?: string | null;
 }
 
 export default function DiscoveryScreen() {
@@ -68,30 +71,75 @@ export default function DiscoveryScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    const fetchPreviews = async () => {
+    const fetchPreviewsAndOwners = async () => {
       if (!boards.length) {
-        setPreviews({});
+        if (isMounted) setPreviews({});
         return;
       }
       try {
         const entries = await Promise.all(
           boards.map(async (board) => {
             const itemsRef = collection(db, 'publicFolders', board.id, 'items');
-            const snap = await getDocs(query(itemsRef, orderBy('createdAt', 'desc'), limit(1)));
-            const docSnap = snap.docs[0];
+            // Grab the most recent item *with* an image so we don't show blank cards
+            const snap = await getDocs(query(itemsRef, orderBy('createdAt', 'desc'), limit(8)));
+            const docSnap = snap.docs.find((d) => {
+              const data = d.data() as any;
+              return Boolean(data?.thumbnail || data?.mediaUrl);
+            });
             const data = docSnap?.data() as any;
             const uri = data?.thumbnail || data?.mediaUrl || '';
-            return [board.id, uri || null] as const;
+
+            let ownerHandle: string | null = board.ownerHandle || null;
+            const ownerUid = board.ownerUid || data?.ownerUid || data?.userId || null;
+            if (!ownerHandle && ownerUid) {
+              try {
+                const userSnap = await getDoc(doc(db, 'users', ownerUid));
+                if (userSnap.exists()) {
+                  ownerHandle = (userSnap.data() as any)?.handle || null;
+                }
+              } catch (err) {
+                console.warn('[discovery] owner handle lookup failed', err);
+              }
+            }
+
+            const preview = board.previewThumbnail || uri || null;
+            if (preview && preview !== board.previewThumbnail) {
+              try {
+                await updateDoc(doc(db, 'publicFolders', board.id), { previewThumbnail: preview });
+              } catch (err) {
+                console.warn('[discovery] preview persist failed', err);
+              }
+            }
+            return [board.id, { preview, ownerHandle }] as const;
           })
         );
+
         if (isMounted) {
-          setPreviews(Object.fromEntries(entries));
+          const previewMap: Record<string, string | null> = {};
+          const handleMap: Record<string, string | null> = {};
+          entries.forEach(([id, payload]) => {
+            previewMap[id] = payload.preview;
+            handleMap[id] = payload.ownerHandle || null;
+          });
+          setPreviews(previewMap);
+          setBoards((prev) => {
+            let changed = false;
+            const next = prev.map((b) => {
+              const nextHandle = handleMap[b.id] ?? b.ownerHandle ?? null;
+              if (nextHandle !== b.ownerHandle) {
+                changed = true;
+                return { ...b, ownerHandle: nextHandle };
+              }
+              return b;
+            });
+            return changed ? next : prev;
+          });
         }
       } catch (err) {
-        console.error('[discovery] preview fetch failed', err);
+        console.error('[discovery] preview/owner fetch failed', err);
       }
     };
-    fetchPreviews();
+    fetchPreviewsAndOwners();
     return () => {
       isMounted = false;
     };
@@ -102,11 +150,11 @@ export default function DiscoveryScreen() {
     try {
       const q = query(collection(db, 'publicFolders'), orderBy('updatedAt', 'desc'), limit(30));
       const snap = await getDocs(q);
-      const data = snap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as any),
-      }));
-      setBoards(data);
+        const data = snap.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...(docSnap.data() as any),
+        }));
+        setBoards(data);
     } catch (err) {
       console.error('[discovery] manual refresh failed', err);
     } finally {
@@ -177,6 +225,8 @@ function PublicBoardCard({
   const colorIndex = index % folderColors.length;
   const colors = folderColors[colorIndex];
   const description = board.description || 'Inspo from the community';
+  const title = board.title ? capitalizeFolderName(board.title) : 'Untitled board';
+  const ownerHandle = board.ownerHandle || '';
 
   return (
     <TouchableOpacity
@@ -194,7 +244,9 @@ function PublicBoardCard({
         )}
       </View>
       <View style={styles.cardContent}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{board.title || 'Untitled board'}</Text>
+        <Text style={styles.cardTitle} numberOfLines={1}>
+          {ownerHandle ? `${title} by @${ownerHandle}` : title}
+        </Text>
         <Text style={styles.cardDescription} numberOfLines={2}>{description}</Text>
         <Text style={styles.cardMeta}>
           {board.itemsCount || 0} {board.itemsCount === 1 ? 'item' : 'items'}
@@ -202,6 +254,11 @@ function PublicBoardCard({
       </View>
     </TouchableOpacity>
   );
+}
+
+function capitalizeFolderName(name: string) {
+  if (!name) return '';
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 const styles = StyleSheet.create({

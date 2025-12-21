@@ -225,7 +225,7 @@ export default function FolderItems() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
-          title: name ? String(name) : 'Folder',
+          title: name ? capitalizeFolderName(String(name)) : 'Folder',
           headerBackTitle: 'Back',
           // headerBackTitleVisible: true,
           headerTintColor: Colors.primary,
@@ -370,6 +370,11 @@ function FolderContentCard({ item, onDelete }: { item: any; onDelete?: (id: stri
       </View>
     </TouchableOpacity>
   );
+}
+
+function capitalizeFolderName(name: string) {
+  if (!name) return '';
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 const styles = StyleSheet.create({

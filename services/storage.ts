@@ -23,6 +23,35 @@ export async function uploadMedia(
     }
 }
 
+export async function uploadRemoteImageToStorage(
+    remoteUrl: string,
+    userId: string
+): Promise<string | null> {
+    try {
+        const response = await fetch(remoteUrl);
+        if (!response.ok) {
+            throw new Error(`Fetch failed: ${response.status}`);
+        }
+        const blob = await response.blob();
+        const contentType = blob.type || 'image/jpeg';
+        const extension =
+            contentType.split('/')[1] ||
+            remoteUrl.split('.').pop()?.split(/\#|\?/)[0] ||
+            'jpg';
+
+        const timestamp = Date.now();
+        const filename = `${userId}/${timestamp}-thumb.${extension}`;
+        const storageRef = ref(storage, `media/${filename}`);
+
+        await uploadBytes(storageRef, blob);
+        const downloadUrl = await getDownloadURL(storageRef);
+        return downloadUrl;
+    } catch (error) {
+        console.warn('Remote thumbnail upload failed:', error);
+        return null;
+    }
+}
+
 // Convert image to base64 for AI analysis
 export async function imageToBase64(uri: string): Promise<string> {
     try {

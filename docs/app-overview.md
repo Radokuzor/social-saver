@@ -10,9 +10,9 @@ Save, organize, and share inspirational social content (videos, images, links). 
 - AI: OpenAI (analyze content) via server `/ai/analyze`.
 
 ## Navigation & Screens
-- `(tabs)/index.tsx` – Home: user’s saved content grid; search/filter; tap opens viewer.
+- `(tabs)/index.tsx` – Home: user’s saved content grid; search/filter; tap opens viewer (secondary landing; discovery opens first).
 - `(tabs)/collections.tsx` – Folder list (create/delete folder; tap opens folder detail).
-- `(tabs)/discovery.tsx` – Public discovery feed (public boards; follow owners).
+- `(tabs)/discovery.tsx` – Public discovery feed (public boards; follow owners) **default landing screen**.
 - `(tabs)/add.tsx` – Add/save new content (URL/image/video flows).
 - `(tabs)/profile.tsx` – Profile, handle setup, stats, logout, delete account.
 - `folder/[id].tsx` – Folder detail (owner/collaborators, visibility toggle, delete items via long-press).
@@ -25,8 +25,9 @@ Save, organize, and share inspirational social content (videos, images, links). 
 - `phone-sign-in.tsx` – Alternate auth notice (phone handled elsewhere).
 
 ## Core Features
-- Save content: URL/image/video; AI-assisted metadata; auto-folder suggestion; upload media to Firebase Storage.
-- Folder management: create, delete, toggle public/private, collaborators; mirrored `publicFolders` when public.
+- Save content: URL/image/video; AI-assisted metadata; auto-folder suggestion; upload media to Firebase Storage (currently unlimited saves across all plans).
+- Discovery-first experience: app opens on the Discovery tab to show fresh public inspo before user saves anything.
+- Folder management: create, delete, toggle public/private, add/remove collaborators; mirrored `publicFolders` when public.
 - Public inspo boards: mirrored items for public view; owners can prune public items or make boards private.
 - Content viewing: inline video/image previews on cards; viewer screen for full playback/embeds.
 - Search/filter: Home search by title/description/tags.
@@ -41,4 +42,3 @@ Save, organize, and share inspirational social content (videos, images, links). 
 
 ## Environment Highlights
 - `EXPO_PUBLIC_STRIPE_MODE`, `EXPO_PUBLIC_AI_SERVER_URL_*`, Firebase config keys, Stripe keys, RapidAPI (optional legacy), LinkPreview/Microlink keys.
-
