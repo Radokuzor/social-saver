@@ -495,6 +495,97 @@ export default function AddScreen() {
         }
     };
 
+    const handleDownloadOffline = async () => {
+        if (!contentType) {
+            Alert.alert('Pick a type', 'Please choose URL, image, or video first.');
+            return;
+        }
+
+        const hasTitle = Boolean((title || metadataTitle).trim());
+        const hasFolder = Boolean(selectedFolder?.trim());
+        if (!hasTitle || !hasFolder) {
+            const message =
+                !hasTitle && !hasFolder
+                    ? 'Please add a title and select a folder.'
+                    : !hasTitle
+                      ? 'Please add a title.'
+                      : 'Please select a folder.';
+            Alert.alert('Missing Information', message);
+            return;
+        }
+
+        if (!uid) {
+            Alert.alert(
+                'Sign up to save',
+                'Create a free account to save this item.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => router.push('/(tabs)/profile'),
+                    },
+                ]
+            );
+            return;
+        }
+
+        const urlTrimmed = url.trim();
+        if (contentType !== 'url' || !/^https?:\/\//i.test(urlTrimmed)) {
+            Alert.alert('Invalid URL', 'Please paste a valid URL link first.');
+            return;
+        }
+
+        try {
+            setOfflineDownloading(true);
+            setOfflineProgress(0);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            const token = uid ? await getIdToken() : null;
+            await downloadForOffline({
+                sourceUrl: urlTrimmed,
+                firebaseIdToken: token || undefined,
+                onProgress: (p) => setOfflineProgress(p),
+            });
+
+            const saveResult = await saveContent({
+                type: 'url',
+                url: urlTrimmed,
+                title: title || metadataTitle,
+                description,
+                tags,
+                folderName: selectedFolder || undefined,
+                aiSuggestedFolders: suggestedFolders,
+                aiCategory: aiCategory || undefined,
+            });
+
+            if (saveResult?.planId === 'free') {
+                const parts: string[] = [];
+                if (typeof saveResult.remainingDaily === 'number') {
+                    parts.push(`${saveResult.remainingDaily} saves left today`);
+                }
+                if (typeof saveResult.remainingMonthly === 'number') {
+                    parts.push(`${saveResult.remainingMonthly} left this month`);
+                }
+                const message = parts.length ? `Free plan: ${parts.join(' · ')}` : 'Saved on free plan.';
+                showToast(message);
+            }
+
+            Alert.alert('Success!', 'Your content has been downloaded and saved', [
+                {
+                    text: 'OK', onPress: () => {
+                        resetForm();
+                        router.replace('/(tabs)');
+                    }
+                }
+            ]);
+        } catch (err: any) {
+            const msg = err?.message || 'Could not download and save your content. Please try again.';
+            Alert.alert('Download failed', msg);
+        } finally {
+            setOfflineDownloading(false);
+            setOfflineProgress(null);
+        }
+    };
+
     const removeTag = (tagToRemove: string) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setTags(tags.filter(tag => tag !== tagToRemove));
@@ -813,7 +904,7 @@ export default function AddScreen() {
                                 </View>
 
                                 {/* AI Organize + Save */}
-                                <TouchableOpacity
+                                {/* <TouchableOpacity
                                     style={[styles.saveButton, styles.aiButton]}
                                     onPress={runAiMagic}
                                     disabled={aiLoading}
@@ -823,7 +914,30 @@ export default function AddScreen() {
                                     ) : (
                                         <Text style={styles.saveButtonText}>AI Organize</Text>
                                     )}
-                                </TouchableOpacity>
+                                </TouchableOpacity> */}
+
+                                {contentType === 'url' ? (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.saveButton,
+                                            styles.aiButton,
+                                            (offlineDownloading || isSaving || !!offlineRecord) && styles.buttonDisabled,
+                                        ]}
+                                        onPress={handleDownloadOffline}
+                                        disabled={offlineDownloading || isSaving || !!offlineRecord}
+                                    >
+                                        {offlineDownloading ? (
+                                            <ActivityIndicator color="#ffffff" />
+                                        ) : (
+                                            <Text style={styles.saveButtonText}>
+                                                {!!offlineRecord
+                                                    ? 'Downloaded'
+                                                    : `Download for Offline${offlineProgress !== null ? ` (${Math.round(offlineProgress * 100)}%)` : ''}`}
+                                            </Text>
+                                        )}
+                                    </TouchableOpacity>
+                                ) : null}
+
                                 <TouchableOpacity
                                     style={styles.saveButton}
                                     onPress={handleSave}
@@ -835,46 +949,6 @@ export default function AddScreen() {
                                         <Text style={styles.saveButtonText}>Save Content</Text>
                                     )}
                                 </TouchableOpacity>
-
-                                {contentType === 'url' && /^https?:\/\//i.test(url.trim()) ? (
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.secondaryButton,
-                                            (offlineDownloading || !!offlineRecord) && styles.buttonDisabled,
-                                        ]}
-                                        onPress={async () => {
-                                            const urlTrimmed = url.trim();
-                                            if (!urlTrimmed) return;
-                                            try {
-                                                setOfflineDownloading(true);
-                                                setOfflineProgress(0);
-                                                const token = uid ? await getIdToken() : null;
-                                                await downloadForOffline({
-                                                    sourceUrl: urlTrimmed,
-                                                    firebaseIdToken: token || undefined,
-                                                    onProgress: (p) => setOfflineProgress(p),
-                                                });
-                                                const record = await getLocalDownload(urlTrimmed);
-                                                setOfflineRecord(record);
-                                                showToast('Downloaded for offline playback');
-                                            } catch (err: any) {
-                                                Alert.alert('Download failed', err?.message || 'Could not download this content.');
-                                            } finally {
-                                                setOfflineDownloading(false);
-                                                setOfflineProgress(null);
-                                            }
-                                        }}
-                                        disabled={offlineDownloading || !!offlineRecord}
-                                    >
-                                        <Text style={styles.secondaryButtonText}>
-                                            {offlineDownloading
-                                                ? `Downloading${offlineProgress !== null ? ` (${Math.round(offlineProgress * 100)}%)` : ''}…`
-                                                : offlineRecord
-                                                    ? 'Downloaded'
-                                                    : 'Download for Offline'}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ) : null}
 
                                 {contentType === 'url' && offlineRecord ? (
                                     <TouchableOpacity

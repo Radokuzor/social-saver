@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { resolveDownloadAsset } from './downloadResolverClient';
 import { ensureDownloadsDir, stableKeyForUrl, upsertLocalDownload } from './localDownloads';
 
@@ -54,4 +54,3 @@ export async function downloadForOffline(params: {
 
   return { localUri: result.uri, mediaType: resolved.mediaType };
 }
-

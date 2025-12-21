@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export type LocalMediaType = 'video' | 'image';
 
@@ -39,7 +39,10 @@ export function stableKeyForUrl(url: string): string {
 }
 
 export function getDownloadsDirUri(): string {
-  return `${FileSystem.Paths.document.uri}downloads/`;
+  if (!FileSystem.documentDirectory) {
+    throw new Error('File storage is not available on this device.');
+  }
+  return `${FileSystem.documentDirectory}downloads/`;
 }
 
 export async function ensureDownloadsDir(): Promise<string> {
@@ -83,4 +86,3 @@ export async function removeLocalDownload(sourceUrl: string): Promise<void> {
     await FileSystem.deleteAsync(record.localUri, { idempotent: true }).catch(() => {});
   }
 }
-
