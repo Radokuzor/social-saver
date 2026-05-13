@@ -1,9 +1,9 @@
 import { ResizeMode, Video } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Menu } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Menu, Repeat, Repeat1, Shuffle } from 'lucide-react-native';
 import * as WebBrowser from 'expo-web-browser';
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -214,6 +214,8 @@ export default function ViewerScreen() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [actionBarHeight, setActionBarHeight] = useState<number>(0);
+  const [playlistMode, setPlaylistMode] = useState<'sequential' | 'repeat-one' | 'shuffle'>('sequential');
+  const shuffledIndicesRef = useRef<number[]>([]);
 
   const decodedUrl = useMemo(() => {
     const asString = Array.isArray(url) ? url[0] : url;
@@ -371,8 +373,49 @@ export default function ViewerScreen() {
 
   const goNext = useCallback(() => {
     if (!playlistItems) return;
-    goToIndex(playlistIndex + 1);
-  }, [goToIndex, playlistIndex, playlistItems]);
+
+    if (playlistMode === 'repeat-one') {
+      // Replay the current video
+      setPreferWeb(false);
+      setWebViewError(false);
+      return;
+    }
+
+    if (playlistMode === 'shuffle') {
+      // Generate shuffled indices if not already done
+      if (shuffledIndicesRef.current.length === 0) {
+        const indices = Array.from({ length: playlistItems.length }, (_, i) => i);
+        // Fisher-Yates shuffle
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        shuffledIndicesRef.current = indices;
+      }
+
+      // Find current position in shuffled array
+      const currentShuffledPos = shuffledIndicesRef.current.indexOf(playlistIndex);
+      const nextShuffledPos = (currentShuffledPos + 1) % shuffledIndicesRef.current.length;
+
+      // If we've completed the shuffle cycle, reshuffle
+      if (nextShuffledPos === 0) {
+        const indices = Array.from({ length: playlistItems.length }, (_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        shuffledIndicesRef.current = indices;
+      }
+
+      goToIndex(shuffledIndicesRef.current[nextShuffledPos]);
+      return;
+    }
+
+    // Sequential mode
+    if (playlistIndex < playlistItems.length - 1) {
+      goToIndex(playlistIndex + 1);
+    }
+  }, [goToIndex, playlistIndex, playlistItems, playlistMode]);
 
   const handleDownload = useCallback(async () => {
     if (!currentUrl) return;
@@ -458,6 +501,18 @@ export default function ViewerScreen() {
     setOptionsOpen(false);
     setMoreOpen((v) => !v);
   }, []);
+
+  const togglePlaylistMode = useCallback(() => {
+    setPlaylistMode((current) => {
+      if (current === 'sequential') return 'repeat-one';
+      if (current === 'repeat-one') return 'shuffle';
+      return 'sequential';
+    });
+    // Reset shuffle indices when changing modes
+    if (playlistMode === 'shuffle') {
+      shuffledIndicesRef.current = [];
+    }
+  }, [playlistMode]);
 
   const handleDeleteCurrentContent = useCallback(() => {
     const idToDelete = String(activeItem?.id || normalizedItemId || '');
@@ -749,7 +804,23 @@ export default function ViewerScreen() {
               <View style={[styles.morePanel, { width: moreWidth, top: actionBarHeight + 6 }]}>
                 <View style={styles.moreHeader}>
                   <Text style={styles.moreTitle}>{normalizedFolderId ? 'More in this folder' : 'More content'}</Text>
-                  {playlistLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
+                  <View style={styles.moreHeaderRight}>
+                    <TouchableOpacity
+                      style={styles.playlistModeButton}
+                      onPress={togglePlaylistMode}
+                      activeOpacity={0.85}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      {playlistMode === 'sequential' ? (
+                        <Repeat size={18} color={Colors.text} />
+                      ) : playlistMode === 'repeat-one' ? (
+                        <Repeat1 size={18} color={Colors.primary} />
+                      ) : (
+                        <Shuffle size={18} color={Colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                    {playlistLoading ? <ActivityIndicator size="small" color={Colors.primary} /> : null}
+                  </View>
                 </View>
                 <ScrollView contentContainerStyle={styles.moreList} showsVerticalScrollIndicator={false}>
                   {playlistItems!.map((it: any, idx: number) => {
@@ -888,6 +959,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   moreTitle: { fontSize: 13, fontWeight: '900', color: Colors.text },
+  moreHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  playlistModeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   moreList: { padding: 10, gap: 10 },
   moreItem: {
     flexDirection: 'row',

@@ -46,6 +46,12 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to save content."
         }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone."
+        }
       ]
     ],
     "experiments": {

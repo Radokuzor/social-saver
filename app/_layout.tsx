@@ -63,11 +63,11 @@ function RootLayoutNav() {
     Audio.setAudioModeAsync({
       playsInSilentModeIOS: true,
       allowsRecordingIOS: false,
-      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+      interruptionModeIOS: InterruptionModeIOS.DuckOthers,
       shouldDuckAndroid: true,
-      interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+      interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
       playThroughEarpieceAndroid: false,
-      staysActiveInBackground: false,
+      staysActiveInBackground: true,
     }).catch((err) => console.warn('[audio] setAudioModeAsync failed', err));
   }, []);
 
